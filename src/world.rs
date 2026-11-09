@@ -558,8 +558,6 @@ pub struct World {
     time: i64,
     /// The time stands still, until the server stops.
     time_stopped: bool,
-    /// Ticks the world has run since it was made or loaded ([`Self::age_ticks`]).
-    age_ticks: u64,
     /// The world's own difficulty; `None` follows the server's.
     difficulty: Option<crate::config::Difficulty>,
     /// The weather, clear at start.
@@ -597,7 +595,6 @@ impl World {
             spawn,
             time: 0,
             time_stopped: false,
-            age_ticks: 0,
             difficulty: None,
             weather: Weather::Clear,
             number: None,
@@ -610,13 +607,6 @@ impl World {
             fed: BTreeSet::new(),
             light: light::Engine::new(),
         }
-    }
-
-    /// Ticks the world has run since it was made or loaded, its clock stopped or not, which
-    /// moving the clock does not change. Not saved, so it starts at 0 at every load.
-    #[cfg(test)]
-    pub(crate) fn age_ticks(&self) -> u64 {
-        self.age_ticks
     }
 
     /// The biome ID at `pos` (such as 1 for plains), or `None` if its chunk is not loaded or
@@ -686,7 +676,6 @@ impl World {
             spawn,
             time,
             time_stopped,
-            age_ticks,
             difficulty,
             weather,
             number: _,
@@ -714,7 +703,6 @@ impl World {
             spawn: *spawn,
             time: *time,
             time_stopped: *time_stopped,
-            age_ticks: *age_ticks,
             difficulty: *difficulty,
             weather: *weather,
             loaded: loaded.clone(),
@@ -933,11 +921,6 @@ impl World {
         self.weather
     }
 
-    /// Counts one more tick of [`Self::age_ticks`]: the clock's tick.
-    pub(crate) fn add_age_tick(&mut self) {
-        self.age_ticks = self.age_ticks.saturating_add(1);
-    }
-
     /// After the tick unloaded every chunk of the world (saving what it keeps first): forgets the
     /// quarantines, the changes waiting and the light work left, so the unloaded world holds
     /// nothing but its settings.
@@ -1025,7 +1008,6 @@ impl World {
             spawn,
             time,
             time_stopped,
-            age_ticks,
             difficulty,
             weather,
             loaded,
@@ -1054,7 +1036,6 @@ impl World {
         self.spawn = spawn;
         self.time = time;
         self.time_stopped = time_stopped;
-        self.age_ticks = age_ticks;
         self.difficulty = difficulty;
         self.weather = weather;
         self.chunks = chunks;
@@ -1292,7 +1273,6 @@ impl fmt::Debug for World {
             .field("spawn", &self.spawn)
             .field("time", &self.time)
             .field("time_stopped", &self.time_stopped)
-            .field("age_ticks", &self.age_ticks)
             .field("difficulty", &self.difficulty)
             .field("weather", &self.weather)
             .field("generator", &self.generator)
@@ -1341,7 +1321,6 @@ pub(crate) struct Saved {
     spawn: BlockPos,
     time: i64,
     time_stopped: bool,
-    age_ticks: u64,
     difficulty: Option<crate::config::Difficulty>,
     weather: Weather,
     /// The loaded chunks, in order.
@@ -1356,7 +1335,6 @@ crate::tick::checkpoint::fields!(Saved {
     spawn,
     time,
     time_stopped,
-    age_ticks,
     difficulty,
     weather,
     loaded,

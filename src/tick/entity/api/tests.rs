@@ -41,7 +41,7 @@ fn object_reads(e: &Entity, kind: &Kind) {
             assert_eq!(e.painting_facing(), Some(p.facing));
         }
         Kind::EndCrystal(c) => {
-            assert_eq!(e.shows_base(), c.show_base);
+            assert_eq!(e.is_base_visible(), c.show_base);
             assert_eq!(e.beam_target(), c.beam_target);
         }
         Kind::Firework(f) => {
@@ -133,7 +133,7 @@ fn every_kind_reads_as_what_it_is() {
                     }
                     Shot::Potion { potion, linger } => {
                         assert_eq!(e.potion(), Some(*potion));
-                        assert_eq!(e.will_linger(), *linger);
+                        assert_eq!(e.is_lingering(), *linger);
                     }
                     Shot::Trident(t) => {
                         assert_eq!(e.item(), Some(&t.item));
@@ -175,7 +175,7 @@ fn every_kind_reads_as_what_it_is() {
     assert!(e.fuse_ticks().is_none() && e.xp_value().is_none() && e.skin().is_none());
     assert!(e.owning_player().is_none() && e.target_player().is_none());
     assert!(e.painting_motive().is_none() && e.painting_facing().is_none());
-    assert!(!e.shows_base() && e.beam_target().is_none());
+    assert!(!e.is_base_visible() && e.beam_target().is_none());
     assert!(e.firework_explosions().is_none() && e.max_flight_time_ticks().is_none());
 }
 
@@ -408,9 +408,14 @@ fn health_fire_damage_and_death_raise_no_events() {
     assert_eq!(e.fire_ticks(), 60);
     e.set_on_fire(1);
     assert_eq!(e.fire_ticks(), 60, "a shorter fire does not shorten it");
-    e.set_fire_ticks(5);
+    e.set_fire_ticks(5).unwrap();
     assert_eq!(e.fire_ticks(), 5);
-    e.set_fire_ticks(0);
+    assert!(
+        e.set_fire_ticks(40_000).is_err(),
+        "more than a burn holds fails"
+    );
+    assert_eq!(e.fire_ticks(), 5);
+    e.set_fire_ticks(0).unwrap();
     assert!(!e.is_on_fire());
     assert!(e.knock_back(1.0, 0.0, 0.4, 0.4));
     assert!(e.motion().x > 0.0 && e.motion().y > 0.0);
@@ -473,7 +478,7 @@ fn kind_setters_change_their_kind_only() {
         assert_eq!(e.set_critical(true).is_ok(), arrow);
         assert_eq!(e.set_pickup_mode(ArrowPickup::None).is_ok(), arrow);
         assert_eq!(e.set_punch_knockback(3).is_ok(), arrow);
-        assert_eq!(e.set_linger(true).is_ok(), potion);
+        assert_eq!(e.set_lingering(true).is_ok(), potion);
         assert_eq!(e.set_profession(4).is_ok(), villager);
         assert_eq!(
             e.set_scale(1.0).is_ok(),
@@ -498,7 +503,7 @@ fn kind_setters_change_their_kind_only() {
             assert_eq!(e.punch_knockback(), Some(3));
         }
         if potion {
-            assert!(e.will_linger());
+            assert!(e.is_lingering());
         }
         if villager {
             assert_eq!(e.profession(), Some(4));
@@ -554,7 +559,7 @@ fn a_firework_rocket_is_never_saved_with_its_chunk() {
     let mut h = Harness::with_player();
     let mut cx = h.context();
     let rocket = cx
-        .spawn_firework_rocket(WORLD, at(2.5, -55.0, 2.5), 30, Vec::new(), Vec3::ZERO)
+        .spawn_firework_rocket(WORLD, at(2.5, -55.0, 2.5), Vec::new())
         .unwrap();
     let mut e = cx.entity_mut(rocket).unwrap();
     assert!(!e.can_save_with_chunk());
@@ -1082,7 +1087,7 @@ fn a_rocket_shows_the_flight_multiplier_of_a_changed_flight_time() {
     let mut h = Harness::with_player();
     let id = h
         .context()
-        .spawn_firework_rocket(WORLD, at(1.5, -55.0, 1.5), 20, Vec::new(), Vec3::ZERO)
+        .spawn_firework_rocket(WORLD, at(1.5, -55.0, 1.5), Vec::new())
         .unwrap();
     h.entities();
     h.take(1);

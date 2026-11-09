@@ -352,13 +352,17 @@ fn parse(line: &str) -> Result<Command, String> {
                 h.parse::<bool>()
                     .map_err(|_| format!("bad hideParticles {h:?}"))
             })?;
+            let effect = effect_type(name)?
+                .instance()
+                .with_duration_ticks(seconds.saturating_mul(Context::TICKS_PER_SECOND))
+                .with_amplifier(amplifier);
             Ok(Command::Effect {
                 player: (*player).to_owned(),
-                effect: effect_type(name)?
-                    .instance()
-                    .with_duration_ticks(seconds.saturating_mul(Context::TICKS_PER_SECOND))
-                    .with_amplifier(amplifier)
-                    .with_visible(!hide),
+                effect: if hide {
+                    effect.without_particles()
+                } else {
+                    effect
+                },
             })
         }
         ["kill", target] if *target == NON_PLAYERS => Ok(Command::KillNonPlayers),
@@ -621,7 +625,7 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
         Err(e) => Outcome::Failed(e),
     };
     match command {
-        Command::Op(player) => done(cx.op(player).map_err(|e| e.to_string())),
+        Command::Op(player) => done(cx.op(player).map(|_| ()).map_err(|e| e.to_string())),
         Command::Kick { player, reason } => {
             let Some(p) = joined(cx, player) else {
                 return not_joined(player);
@@ -753,7 +757,7 @@ fn farmer_offers() -> Result<Vec<Offer>, String> {
         let buy = Stack::new(item_type(buy.0)?, buy.1);
         let sell = Stack::new(item_type(sell.0)?, sell.1);
         Ok(Offer::new(buy, sell, FARMER_OFFER_USES)
-            .with_any_damage()
+            .any_damage()
             .with_trader_xp(trader_xp)
             .with_price_multipliers(0.05, 0.0))
     };

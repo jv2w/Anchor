@@ -441,7 +441,7 @@ fn hold(
         return Ok(());
     }
     let data = match (state.saving.offline.get(key), load) {
-        (Some(departed), _) => departed.data.clone(),
+        (Some(departed), _) => PlayerData::clone(&departed.data),
         (None, PlayerLoad::Found(data)) => data.clone(),
         (None, PlayerLoad::Absent) => return Err(Error::NotSaved),
         (None, PlayerLoad::Damaged) => return Err(Error::Damaged),
@@ -590,7 +590,7 @@ mod tests {
             (data.world.as_str(), data.position),
             ("world", [0.5, 1.62, 0.5])
         );
-        let again = Offline::load(&state, data.clone(), key.as_str());
+        let again = Offline::load(&state, PlayerData::clone(data), key.as_str());
         assert_eq!(again.data::<Kills>(), Some(&Kills(4)));
         assert_eq!(again.inventory(Kind::Main).item(0), Some(&stick(5)));
         assert_eq!(again.inventory(Kind::EnderChest).item(2), Some(&stick(1)));
@@ -761,6 +761,7 @@ mod tests {
         let answer = || Response::Player {
             key: StoredPlayer::xuid(XUID),
             data: PlayerLoad::Found(saved()),
+            logged: crate::tick::LoggedPlayer::of(&PlayerLoad::Found(saved())),
         };
         let run = |answers: Vec<Response>| {
             let mut state = state();

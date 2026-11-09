@@ -26,8 +26,8 @@ pub(crate) const MAX_LEVEL: u32 = 24_791;
 const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
 /// The largest xp progress: just below a full bar, which is the next level.
 pub(crate) const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
-/// The longest chat source name a client decodes.
-const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
+/// The longest chat source name a client decodes, in bytes.
+const MAX_SOURCE_BYTES: usize = TEXT_SOURCE_NAME_MAX_LEN;
 /// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
 /// most a message, a command's output and the other texts the API sends take.
 pub const MAX_TEXT_BYTES: usize = TEXT_MESSAGE_MAX_LEN;
@@ -228,7 +228,7 @@ impl Message {
         };
         let spoken = |kind: TextType, source: String, message: String| {
             check_text(&message)?;
-            if source.len() > MAX_SOURCE {
+            if source.len() > MAX_SOURCE_BYTES {
                 return Err(Error::TooLong);
             }
             Ok(text_packet(kind, source, message, Vec::new()))
@@ -620,7 +620,7 @@ mod tests {
         );
         assert_eq!(
             Message::Chat {
-                source: "s".repeat(MAX_SOURCE + 1),
+                source: "s".repeat(MAX_SOURCE_BYTES + 1),
                 text: "hi".to_owned()
             }
             .into_packets(),

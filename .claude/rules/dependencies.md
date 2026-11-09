@@ -28,7 +28,7 @@ paths:
   - it has no open RustSec advisory, active maintenance, and a permissive license;
   - it matches the Bedrock format byte for byte;
   - it supports Windows and Linux.
-- Pin every version with `=`.
+- Write every version requirement as the reviewed release in caret form (`"1.53.1"`), never `=`; `Cargo.lock` locks the reviewed versions.
 - Never admit a crate for anything in the "Implemented directly" table of `.claude/docs/dependencies.md`; use the direct implementation.
 - Anchor is a library: never set a global allocator or a build profile for its users.
 
@@ -49,7 +49,7 @@ paths:
 - Fix only the defective part. Never add features or polish.
 - Every fix has a reproduction test that fails on the published crate.
 - Record each fix and its reason in the vendor-copy section of `.claude/docs/dependencies.md`, and mark it in the code with an `Anchor` comment.
-- Start each copy from the pinned crates.io release. A copy differs from it only in its fixes (with the upstream test expectations they contradict), the `path` lines to other copies, an upstream license file the published crate lacks, and `.gitignore` lines that would keep a published file out of git.
+- Start each copy from the pinned crates.io release. A copy differs from it only in its fixes (with their reproduction tests and the upstream test expectations they contradict), the `path` lines to other copies, an upstream license file the published crate lacks, and `.gitignore` lines that would keep a published file out of git.
 - Depend on a copy by `path`, never by `[patch]`. Never make a copy a workspace member (`exclude = ["vendor"]`).
 - When an upstream release fixes a defect, drop that fix from the copy. When no fix remains, delete the copy and return to the release.
 - Review each new upstream release with the distrust procedure before moving to it.

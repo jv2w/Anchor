@@ -374,16 +374,18 @@ fn fails(state: &mut State, sender: Sender, line: &str) -> String {
     }
 }
 
+/// Gives player 2 the address `ip` and its address index entry, as a join with it does.
+fn give_player2_address(state: &mut State, ip: IpAddr) {
+    let session = SessionId::new(2);
+    state.players.get_mut(&session).unwrap().identity.address = Some(ip);
+    state.addresses.insert((ip, session));
+}
+
 #[test]
 fn ban_ip_takes_an_address_or_an_online_players_and_unban_ip_lifts_it() {
     let (mut state, mut rx) = with_op();
     let ip = IpAddr::from([10, 0, 0, 2]);
-    state
-        .players
-        .get_mut(&SessionId::new(2))
-        .unwrap()
-        .identity
-        .address = Some(ip);
+    give_player2_address(&mut state, ip);
     assert_eq!(
         fails(&mut state, Sender::Console, "ban-ip nobody"),
         "commands.banip.invalid"
@@ -420,12 +422,7 @@ fn ban_ip_takes_an_address_or_an_online_players_and_unban_ip_lifts_it() {
 fn ban_ip_and_unban_ip_take_an_ipv4_address_written_as_ipv6() {
     let (mut state, mut rx) = with_op();
     let ip = IpAddr::from([10, 0, 0, 2]);
-    state
-        .players
-        .get_mut(&SessionId::new(2))
-        .unwrap()
-        .identity
-        .address = Some(ip);
+    give_player2_address(&mut state, ip);
     ok(&mut state, Sender::Console, "ban-ip ::ffff:10.0.0.2 bye");
     assert!(Context { state: &mut state }.is_ip_banned(ip));
     let (_, last) = chat(&mut state, &mut rx[1]);
@@ -739,6 +736,26 @@ fn kill_is_for_operators_and_kills_oneself_by_default() {
     assert!(!player(&state, 2).is_alive());
 }
 
+/// Only a player that dies counts: one already dead is a failure, and of several targets only the
+/// players killed get a success line.
+#[test]
+fn kill_fails_for_players_that_do_not_die() {
+    let (mut state, _rx) = with_op();
+    assert_eq!(
+        ok(&mut state, Sender::Console, "kill player1"),
+        ["commands.kill.successful"]
+    );
+    assert_eq!(
+        fails(&mut state, Sender::Console, "kill player1"),
+        "player1 cannot be killed"
+    );
+    assert_eq!(
+        ok(&mut state, Sender::Console, "kill @a"),
+        ["commands.kill.successful"]
+    );
+    assert!(!player(&state, 2).is_alive());
+}
+
 #[test]
 fn tp_moves_players_to_players_and_positions() {
     let (mut state, _rx) = with_op();
@@ -776,25 +793,6 @@ fn tp_moves_players_to_players_and_positions() {
     );
 }
 
-/// The world's age counts every tick the world runs, its clock paused or moved.
-#[test]
-fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
-    let (mut state, _rx) = with_op();
-    Context { state: &mut state }
-        .stop_time(crate::world::Id::DEFAULT)
-        .unwrap();
-    let (time, age) = (state.worlds[0].time_ticks(), state.worlds[0].age_ticks());
-    for _ in 0..3 {
-        tick(&mut state, &mut Vec::new(), &mut TickOutput::default());
-    }
-    assert_eq!(state.worlds[0].time_ticks(), time);
-    assert_eq!(state.worlds[0].age_ticks(), age + 3);
-    Context { state: &mut state }
-        .set_time(crate::world::Id::DEFAULT, 50_000)
-        .unwrap();
-    assert_eq!(state.worlds[0].age_ticks(), age + 3);
-}
-
 /// Adds the world `arena` to the server and returns its ID.
 fn add_arena(state: &mut State) -> crate::world::Id {
     state.add_world(crate::world::World::new(
@@ -804,39 +802,6 @@ fn add_arena(state: &mut State) -> crate::world::Id {
         BlockPos::new(0, 0, 0),
     ));
     crate::world::Id::of(1)
-}
-
-/// Runs a tick and collects the clock states (time, paused) of each `SyncWorldClocks` `rx` got.
-fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
-    tick(state, &mut Vec::new(), &mut TickOutput::default());
-    received(rx)
-        .0
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::SyncWorldClocks(c) => {
-                Some(c.sync_states.iter().map(|s| (s.time, s.paused)).collect())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// Each change of the clock is told with one `SyncWorldClocks` state.
-#[test]
-fn the_players_are_told_each_change_of_the_clock() {
-    let (mut state, mut rx) = with_op();
-    let world = crate::world::Id::DEFAULT;
-    // Paused, so the ticks between leave the clock where it is.
-    Context { state: &mut state }.stop_time(world).unwrap();
-    clock_syncs(&mut state, &mut rx[0]);
-    Context { state: &mut state }.set_time(world, 6000).unwrap();
-    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(6000, true)]]);
-    Context { state: &mut state }.set_time(world, 7000).unwrap();
-    Context { state: &mut state }.set_time(world, 6000).unwrap();
-    assert_eq!(
-        clock_syncs(&mut state, &mut rx[0]),
-        [[(7000, true)], [(6000, true)]]
-    );
 }
 
 /// Coordinates count from the sender, so they are a place in the sender's world: `/tp` with
@@ -964,7 +929,7 @@ fn status_memory_rounds_to_a_tenth_of_a_mib() {
 }
 
 #[test]
-fn long_ban_and_white_lists_show_the_first_hundred_names_and_count_the_rest() {
+fn long_ban_lists_and_whitelists_show_the_first_hundred_names_and_count_the_rest() {
     let (mut state, _rx) = with_op();
     let mut cx = Context { state: &mut state };
     for n in 0..150 {

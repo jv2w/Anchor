@@ -232,7 +232,7 @@ impl Driver {
 /// the cookie key.
 #[derive(Debug)]
 pub(crate) struct Settings {
-    /// Largest MTU to negotiate (`max-mtu-size`).
+    /// Largest MTU to negotiate (`max-mtu-bytes`).
     pub(crate) max_mtu: u16,
     /// Largest game message in bytes, without the 0xfe byte.
     pub(crate) max_message_bytes: usize,

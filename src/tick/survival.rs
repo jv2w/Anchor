@@ -30,7 +30,7 @@ pub(super) use attributes::{
     layer_of, mode_abilities, update_abilities,
 };
 pub(super) use clock::{Clock, clock_definition, clock_state, day_cycle_lock_time};
-pub(super) use damage::{Damage, actor_cause, heals, highest_armor_level, respawn_joined};
+pub(super) use damage::{Damage, actor_cause, heals, protection_level, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
 use std::collections::BTreeMap;
@@ -48,9 +48,7 @@ use crate::math::{Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::player::Id;
 use crate::protocol::consts::MoveMode;
-use crate::protocol::packet::{
-    Animate, Emote, Packet, PlayerAction, PlayerAuthInput, PlayerSkin, Respawn,
-};
+use crate::protocol::packet::{Emote, Packet, PlayerAction, PlayerAuthInput, PlayerSkin, Respawn};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, Weather, World};
@@ -174,6 +172,7 @@ impl Survival {
                 food: settings.food,
                 xp: settings.xp,
                 drowning: settings.drowning,
+                armor: settings.armor,
             },
             // Without air the player always breathes.
             breathing: !settings.drowning,
@@ -224,12 +223,7 @@ impl Survival {
             saved::game_mode_id(*default_mode).cast_unsigned(),
         ));
         h.u64(u64::from(*forced_mode));
-        let Switches {
-            food: food_on,
-            xp: xp_on,
-            drowning,
-        } = switches;
-        h.u64(u64::from(*food_on) | u64::from(*xp_on) << 1 | u64::from(*drowning) << 2);
+        switches.hash_into(h);
         for v in [health, absorption, food, saturation, exhaustion] {
             h.u64(v.to_bits());
         }
@@ -397,7 +391,8 @@ checkpoint::fields!(Survival {
 });
 
 /// The survival systems the server settings turn on, fixed at start and kept with each player: the
-/// public API, which has only the player, refuses to change a system that is off.
+/// rules read them here, as the public API, which has only the player, must; the API refuses to
+/// change a system that is off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Switches {
     /// `food`: food, saturation and exhaustion.
@@ -406,6 +401,9 @@ struct Switches {
     xp: bool,
     /// `drowning`: air, drowning and suffocation.
     drowning: bool,
+    /// `armor`: everything worn armor does against harm: protection and its enchantments
+    /// (against damage, burning and explosion knockback), wear and thorns.
+    armor: bool,
 }
 
 impl Switches {
@@ -414,10 +412,29 @@ impl Switches {
         food: true,
         xp: true,
         drowning: true,
+        armor: true,
     };
+
+    #[cfg(test)]
+    fn hash_into(self, h: &mut super::Fnv) {
+        let Self {
+            food,
+            xp,
+            drowning,
+            armor,
+        } = self;
+        h.u64(
+            u64::from(food) | u64::from(xp) << 1 | u64::from(drowning) << 2 | u64::from(armor) << 3,
+        );
+    }
 }
 
-checkpoint::fields!(Switches { food, xp, drowning });
+checkpoint::fields!(Switches {
+    food,
+    xp,
+    drowning,
+    armor,
+});
 
 /// A position in a world by name (worlds are saved by name).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,13 +527,6 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
 /// swimming on or off; any other action does nothing.
 pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
     movement::on_player_action(state, session, packet);
-}
-
-/// `Animate`: ignored. The arm swing other players see comes from the attacks and missed swings
-/// the server handles, so a client cannot make every viewer receive a packet per packet it
-/// sends.
-pub(super) fn on_animate(state: &mut State, session: SessionId, packet: &Animate) {
-    let _ = (state, session, packet);
 }
 
 /// Answers a `Respawn` from the client: the respawn button on the death screen
@@ -657,15 +667,15 @@ pub(super) fn tick(state: &mut State) {
 
 /// Runs one tick of a spawned, living player.
 fn player_tick(state: &mut State, session: SessionId) {
-    let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     if player.phase != Phase::Spawned {
         return;
     }
-    let food = settings.food && player.survival.custom.food && is_survival(player.survival.mode());
-    player.survival.motion.food = food;
+    let s = &player.survival;
+    let is_survival_mode = is_survival(s.mode());
+    player.survival.motion.food = s.switches.food && s.custom.food && is_survival_mode;
     if player.survival.is_dead() {
         // Killed through the API: the death's drops come now.
         if !player.survival.motion.death_shown && std::mem::take(&mut player.survival.custom.killed)
@@ -693,7 +703,7 @@ fn player_tick(state: &mut State, session: SessionId) {
         food::xp_tick(&mut player.survival);
     }
     damage::living_tick(state, session);
-    if food {
+    if is_survival_mode {
         food::tick(state, session);
     }
     food::using_tick(state, session);
@@ -738,12 +748,6 @@ fn next_session(state: &State, session: SessionId) -> Option<SessionId> {
         .map(|(&s, _)| s)
 }
 
-/// The player's game mode: its own, or the server default. The mode lives with the player; the
-/// state argument is the rule modules' calling form.
-pub(super) fn game_mode(_state: &State, player: &Player) -> GameMode {
-    player.survival.mode()
-}
-
 /// The player's own game mode, `None` when it uses the server default (`StartGame` then names
 /// the world's mode, as the official server does for a new player).
 pub(super) fn own_game_mode(settings: &Settings, player: &Player) -> Option<GameMode> {
@@ -764,8 +768,8 @@ pub(super) fn health_shown(player: &Player) -> i32 {
 }
 
 /// The player confirmed its spawn: its entity data is what the spawn window showed, and it
-/// learns its active effects. The settings argument is the spawn module's calling form.
-pub(super) fn spawned(_settings: &Settings, player: &mut Player) {
+/// learns its active effects.
+pub(super) fn spawned(player: &mut Player) {
     attributes::spawned(player);
     let packets: Vec<Packet> = effects::all_packets(player).collect();
     for packet in packets {
@@ -1038,7 +1042,7 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
         super::view::set_radius(state, &mut player, radius);
     }
     // Its client has the old world's clock from its join, as it has the weather.
-    player.send_packet(clock_state(state, world));
+    player.send_packet(clock_state(super::world_api::world_at(state, world)));
     state.players.insert(session, player);
 }
 
@@ -1614,8 +1618,8 @@ mod tests {
         assert_eq!(size(&adventure_settings()), 5);
         let mut state = server.state;
         state.worlds[0].set_time(26);
-        assert_eq!(size(&clock_state(&state, 0)), 13);
-        assert_eq!(size(&clock_definition(&state, 0)), 236);
+        assert_eq!(size(&clock_state(&state.worlds[0])), 13);
+        assert_eq!(size(&clock_definition(&state.worlds[0])), 236);
     }
 
     #[test]
@@ -1715,6 +1719,26 @@ mod tests {
         let entity = taken(Damage::Explosion, 4);
         assert!(entity < taken(Damage::Explosion, 1), "{entity}");
         assert_eq!(taken(Damage::BlockExplosion, 4), entity);
+    }
+
+    /// Fire protection IV cuts a 10-second burn to 4 seconds, and with `armor = false` to
+    /// nothing; nor does blast protection count then.
+    #[test]
+    fn armor_off_turns_off_fire_and_blast_protection() {
+        for (armor, burn_ticks) in [(true, 80), (false, 200)] {
+            let mut server = Server::new(1, |c| c.general.armor = armor);
+            let chest = enchanted(
+                ItemKind::DiamondChestplate,
+                &[(Enchantment::FireProtection, 4)],
+            );
+            inventory::set_armor(server.player_mut(1), 1, chest);
+            let boots = enchanted(ItemKind::DiamondBoots, &[(Enchantment::BlastProtection, 4)]);
+            inventory::set_armor(server.player_mut(1), 3, boots);
+            assert!(damage::ignite(server.player_mut(1), 10));
+            assert_eq!(server.survival_mut(1).fire_ticks, burn_ticks);
+            let blast = protection_level(server.player(1), Enchantment::BlastProtection);
+            assert_eq!(blast, if armor { 4 } else { 0 });
+        }
     }
 
     #[test]
@@ -2153,6 +2177,23 @@ mod tests {
         food::exhaust(server.survival_mut(1), 40.0);
         let s = server.survival_mut(1);
         assert_eq!((s.food, s.exhaustion, s.saturation), (10.0, 0.0, 5.0));
+    }
+
+    /// With food off a low or empty bar heals as a full one, every 80 ticks, for no exhaustion,
+    /// and never starves.
+    #[test]
+    fn food_off_heals_as_a_full_bar_for_nothing() {
+        for food in [10.0, 0.0] {
+            let mut server = Server::new(1, |c| c.general.food = false);
+            let s = server.survival_mut(1);
+            (s.food, s.health, s.food_timer) = (food, 10.0, 0);
+            server.idle(80);
+            let s = server.survival_mut(1);
+            assert_eq!(
+                (s.health, s.food, s.saturation, s.exhaustion),
+                (11.0, food, DEFAULT_SATURATION, 0.0)
+            );
+        }
     }
 
     #[test]
@@ -2774,10 +2815,7 @@ mod tests {
         });
         server.hurt(1, 100.0, Damage::Magic);
         damage::respawn(&mut server.state, sid(1), Stay::Online);
-        assert_eq!(
-            game_mode(&server.state, server.player(1)),
-            GameMode::Spectator
-        );
+        assert_eq!(server.player(1).game_mode(), GameMode::Spectator);
         assert!(!server.hurt(1, 5.0, Damage::Magic));
     }
 
@@ -2794,7 +2832,7 @@ mod tests {
         server.hurt(1, 100.0, Damage::Magic);
         damage::respawn(&mut server.state, sid(1), Stay::Online);
         let player = server.player(1);
-        assert_eq!(game_mode(&server.state, player), GameMode::Spectator);
+        assert_eq!(player.game_mode(), GameMode::Spectator);
         assert!(player.can_fly());
         assert!(player.is_flying());
         assert!(!player.has_block_collision());

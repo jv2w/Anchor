@@ -25,17 +25,19 @@ pub(crate) use skin::{MAX_SKIN_JSON_DEPTH, NO_CUSTOM_GEOMETRY};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id {
     index: u32,
-    generation: u32,
+    // A u64 so it never wraps: one removal adds 1, so 2^64 removals never happen, while 2^32
+    // could on a long-running server and let a stale `Id` find a new entity.
+    generation: u64,
 }
 
 impl Id {
     /// The ID of slot `index` in its `generation`.
-    pub(crate) const fn new(index: u32, generation: u32) -> Self {
+    pub(crate) const fn new(index: u32, generation: u64) -> Self {
         Self { index, generation }
     }
 
     /// The generation of the slot this entity holds.
-    pub(crate) const fn generation(self) -> u32 {
+    pub(crate) const fn generation(self) -> u64 {
         self.generation
     }
 

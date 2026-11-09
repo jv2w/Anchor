@@ -5,7 +5,7 @@
 //! events is one event with an enum for the variant: [`EntityDamage`] has a [`DamageSource`],
 //! [`EntityCombust`] a [`CombustSource`].
 
-use super::{Actor, fire_chance_after, set_clamped, set_radius};
+use super::{Actor, fire_chance_after, set_clamped, set_size};
 use crate::block::State;
 use crate::effect::Instance;
 use crate::entity;
@@ -569,9 +569,9 @@ impl EntityEffectRemove {
 pub struct EntityExplode {
     pub(crate) entity: entity::Id,
     pub(crate) world: world::Id,
-    pub(crate) position: Vec3,
+    pub(crate) center: Vec3,
     pub(crate) blocks: Vec<BlockPos>,
-    pub(crate) yield_percent: f64,
+    pub(crate) drop_chance: f64,
     pub(crate) ignitions: Vec<BlockPos>,
     pub(crate) cancelled: bool,
 }
@@ -583,13 +583,13 @@ getters!(EntityExplode {
     world: world::Id,
     /// The center of the explosion.
     #[doc(alias = "EntityExplodeEvent::getPosition")]
-    position: Vec3,
+    center: Vec3,
     /// The blocks that break.
     #[doc(alias = "EntityExplodeEvent::getBlockList")]
     blocks: &[BlockPos],
-    /// The chance in percent that a broken block drops its items.
+    /// The chance, 0 to 1, that a broken block drops its items.
     #[doc(alias = "EntityExplodeEvent::getYield")]
-    yield_percent: f64,
+    drop_chance: f64,
     /// The blocks that catch fire.
     #[doc(alias = "EntityExplodeEvent::getIgnitions")]
     ignitions: &[BlockPos],
@@ -607,11 +607,11 @@ setters!(EntityExplode {
 });
 
 impl EntityExplode {
-    /// Sets the chance in percent that a broken block drops its items, limited to 0 to 100. A
-    /// value that is not finite is ignored.
+    /// Sets the chance that a broken block drops its items, limited to 0 to 1. A value that is
+    /// not finite is ignored.
     #[doc(alias = "EntityExplodeEvent::setYield")]
-    pub fn set_yield_percent(&mut self, percent: f64) {
-        set_clamped(&mut self.yield_percent, percent, 0.0, 100.0);
+    pub fn set_drop_chance(&mut self, chance: f64) {
+        set_clamped(&mut self.drop_chance, chance, 0.0, 1.0);
     }
 }
 
@@ -735,7 +735,7 @@ cancellable! {
 #[derive(Debug)]
 pub struct EntityPreExplode {
     pub(crate) entity: entity::Id,
-    pub(crate) radius: f64,
+    pub(crate) size: f64,
     pub(crate) fire_chance: f64,
     pub(crate) block_breaking: bool,
     pub(crate) cancelled: bool,
@@ -744,9 +744,9 @@ pub struct EntityPreExplode {
 getters!(EntityPreExplode {
     /// The entity that explodes.
     entity: entity::Id,
-    /// The radius of the explosion, in blocks.
+    /// The size of the explosion: its radius in blocks.
     #[doc(alias = "EntityPreExplodeEvent::getRadius")]
-    radius: f64,
+    size: f64,
     /// The chance, 0 to 1, that a block the explosion reaches catches fire.
     #[doc(alias = "EntityPreExplodeEvent::getFireChance")]
     fire_chance: f64,
@@ -784,11 +784,11 @@ impl EntityPreExplode {
         self.fire_chance = fire_chance_after(self.fire_chance, incendiary);
     }
 
-    /// Sets the radius of the explosion, limited to 8 blocks. A value that is not finite or not
-    /// above 0 is ignored.
+    /// Sets the size of the explosion, limited to 8. A value that is not finite or not above 0 is
+    /// ignored.
     #[doc(alias = "EntityPreExplodeEvent::setRadius")]
-    pub fn set_radius(&mut self, radius: f64) {
-        set_radius(&mut self.radius, radius);
+    pub fn set_size(&mut self, size: f64) {
+        set_size(&mut self.size, size);
     }
 }
 
@@ -1127,7 +1127,7 @@ mod tests {
     use crate::block::{AIR, DIRT};
     use crate::effect::Type;
     use crate::event::fixtures::{POS, entity, player, sticks};
-    use crate::event::{DEFAULT_FIRE_CHANCE, MAX_EXPLOSION_RADIUS};
+    use crate::event::{DEFAULT_FIRE_CHANCE, MAX_EXPLOSION_SIZE};
 
     /// A position away from the block grid.
     const AT: Vec3 = Vec3::new(1.5, 2.0, -3.25);
@@ -1445,7 +1445,7 @@ mod tests {
         remove.effect = Instance::new(Type::Speed, 0, 0, true, false);
         remove.cancel();
         assert!(!remove.is_cancelled());
-        remove.effect = remove.effect.with_infinite(true);
+        remove.effect = remove.effect.infinite();
         remove.cancel();
         assert!(remove.is_cancelled(), "an infinite effect never runs out");
     }
@@ -1457,36 +1457,33 @@ mod tests {
     // api: EntityExplodeEvent::cancel, EntityExplodeEvent::uncancel,
     // api: EntityExplodeEvent::isCancelled
     #[test]
-    fn entity_explode_blocks_and_yield_can_change() {
+    fn entity_explode_blocks_and_drop_chance_can_change() {
         let mut e = EntityExplode {
             entity: entity(1),
             world: WORLD,
-            position: AT,
+            center: AT,
             blocks: vec![POS],
-            yield_percent: 25.0,
+            drop_chance: 0.25,
             ignitions: Vec::new(),
             cancelled: false,
         };
-        assert_eq!(
-            (e.entity(), e.world(), e.position()),
-            (entity(1), WORLD, AT)
-        );
-        assert_eq!((e.blocks(), e.yield_percent()), ([POS].as_slice(), 25.0));
+        assert_eq!((e.entity(), e.world(), e.center()), (entity(1), WORLD, AT));
+        assert_eq!((e.blocks(), e.drop_chance()), ([POS].as_slice(), 0.25));
         assert!(e.ignitions().is_empty());
         e.set_blocks(Vec::new());
         e.set_ignitions(vec![POS]);
-        e.set_yield_percent(250.0);
+        e.set_drop_chance(2.5);
         assert!(e.blocks().is_empty());
         assert_eq!(e.ignitions(), &[POS]);
-        assert_eq!(e.yield_percent(), 100.0);
-        e.set_yield_percent(f64::NAN);
-        assert_eq!(e.yield_percent(), 100.0);
-        e.set_yield_percent(-1.0);
-        assert_eq!(e.yield_percent(), 0.0);
-        e.set_yield_percent(50.0);
-        e.set_yield_percent(f64::INFINITY);
-        e.set_yield_percent(f64::NEG_INFINITY);
-        assert_eq!(e.yield_percent(), 50.0);
+        assert_eq!(e.drop_chance(), 1.0);
+        e.set_drop_chance(f64::NAN);
+        assert_eq!(e.drop_chance(), 1.0);
+        e.set_drop_chance(-1.0);
+        assert_eq!(e.drop_chance(), 0.0);
+        e.set_drop_chance(0.5);
+        e.set_drop_chance(f64::INFINITY);
+        e.set_drop_chance(f64::NEG_INFINITY);
+        assert_eq!(e.drop_chance(), 0.5);
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();
@@ -1560,23 +1557,23 @@ mod tests {
     fn entity_pre_explode_keeps_its_values_in_range() {
         let mut e = EntityPreExplode {
             entity: entity(1),
-            radius: 4.0,
+            size: 4.0,
             fire_chance: 0.0,
             block_breaking: true,
             cancelled: false,
         };
         assert_eq!(
-            (e.entity(), e.radius(), e.fire_chance()),
+            (e.entity(), e.size(), e.fire_chance()),
             (entity(1), 4.0, 0.0)
         );
         assert!(!e.is_incendiary());
         assert!(e.is_block_breaking());
-        e.set_radius(2.5);
-        e.set_radius(0.0);
-        e.set_radius(f64::INFINITY);
-        assert_eq!(e.radius(), 2.5);
-        e.set_radius(100.0);
-        assert_eq!(e.radius(), MAX_EXPLOSION_RADIUS);
+        e.set_size(2.5);
+        e.set_size(0.0);
+        e.set_size(f64::INFINITY);
+        assert_eq!(e.size(), 2.5);
+        e.set_size(100.0);
+        assert_eq!(e.size(), MAX_EXPLOSION_SIZE);
         e.set_incendiary(true);
         assert_eq!(e.fire_chance(), DEFAULT_FIRE_CHANCE);
         e.set_fire_chance(0.75);

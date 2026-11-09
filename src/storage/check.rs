@@ -61,13 +61,14 @@ struct Overlay {
 }
 
 impl Overlay {
+    /// An overlay over `file` that redb sees `len` bytes long: the file's length, or 0 to see
+    /// none of its bytes.
     #[expect(
         clippy::disallowed_types,
         reason = "off-tick: redb's backend trait takes &self; one thread checks a file"
     )]
-    fn new(file: Arc<Handle>) -> Result<Self> {
-        let len = file.len()?;
-        Ok(Self {
+    fn new(file: Arc<Handle>, len: u64) -> Self {
+        Self {
             file,
             state: std::sync::Mutex::new(State {
                 len,
@@ -75,7 +76,7 @@ impl Overlay {
                 written: BTreeMap::new(),
                 ahead: Vec::with_capacity(READ_AHEAD_BLOCKS),
             }),
-        })
+        }
     }
 
     /// The state. Nothing panics while holding it, so a poisoned lock still holds a whole state.
@@ -321,6 +322,29 @@ pub(crate) struct Handle {
 }
 
 impl Handle {
+    /// The handle of the file at `path`, made empty if missing, holding redb's lock as the run's
+    /// open takes it without reading any of the file's bytes: [`Error::InUse`] while another
+    /// process holds the lock. What the file holds is left to the caller, which may cut it
+    /// ([`Self::empty`]) now that no other process opens it.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: the world import takes its temporary file"
+    )]
+    pub(crate) fn claim(path: &Path) -> Result<Arc<Self>> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(Error::Io)?;
+        let handle = Self::new(file)?;
+        // redb takes its lock before it reads anything, and an overlay of no bytes gives it nothing
+        // to read; the dropped database leaves the lock with the handle.
+        drop(open_on(Overlay::new(Arc::clone(&handle), 0))?);
+        Ok(handle)
+    }
+
     /// The handle of a new data file at `path`, which its check found missing: [`Error::InUse`]
     /// if another process made the file since.
     #[expect(
@@ -362,6 +386,11 @@ impl Handle {
     /// The file's length in bytes.
     pub(crate) fn len(&self) -> Result<u64> {
         self.file.len().map_err(Error::Io)
+    }
+
+    /// Cuts the file to no bytes, for a file [`Self::claim`] took.
+    pub(crate) fn empty(&self) -> Result<()> {
+        self.file.set_len(0).map_err(Error::Io)
     }
 
     #[expect(
@@ -706,12 +735,16 @@ pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<Option<Arc<H
 
 /// redb opened on an [`Overlay`] over the closed data file of `handle`, so nothing done through
 /// it reaches the file. An empty file opens as a new database.
+pub(super) fn open_overlay(handle: &Arc<Handle>) -> Result<Database> {
+    open_on(Overlay::new(Arc::clone(handle), handle.len()?))
+}
+
+/// redb opened on `overlay`.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the start reads a closed data file before it opens it"
 )]
-pub(super) fn open_overlay(handle: &Arc<Handle>) -> Result<Database> {
-    let overlay = Overlay::new(Arc::clone(handle))?;
+fn open_on(overlay: Overlay) -> Result<Database> {
     let mut builder = Builder::new();
     // No page cache: each pass of the check reads a page once, and the overlay's read-ahead
     // holds the pages around it. On a 368 MiB world the check took 333 to 517 ms without one
@@ -775,7 +808,9 @@ pub(super) mod tests {
     /// redb opened on an [`Overlay`] over the file at `path`.
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn overlay(path: &Path) -> Database {
-        let overlay = Overlay::new(Handle::open(path).unwrap().unwrap()).unwrap();
+        let handle = Handle::open(path).unwrap().unwrap();
+        let len = handle.len().unwrap();
+        let overlay = Overlay::new(handle, len);
         Builder::new().create_with_backend(overlay).unwrap()
     }
 

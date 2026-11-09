@@ -8,14 +8,15 @@
 //! chunk get once at the end of the tick. Writes raise no events: a direct API call never
 //! re-enters the listeners.
 
-use super::{BlockEntity, Kind, block_at, chests_pair, decor, mark_spawn};
+use super::{BlockEntity, Kind, block_at, chests_pair, create, decor, mark_spawn};
 use crate::block::{self, Face, TypeTag};
 use crate::block_entity::{
     self, BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, MAX_PATTERNS, Mut, Result,
     Side, SignText,
 };
+use crate::item::Stack;
 use crate::tick::interact::props;
-use crate::tick::{Context, State, inventory};
+use crate::tick::{Context, State, entity, inventory};
 use crate::world::{self, BlockPos, ChunkPos};
 
 impl Context<'_> {
@@ -55,10 +56,23 @@ impl Context<'_> {
             .map(move |pos| block_entity::BlockEntity { state, world, pos })
     }
 
-    /// The block entity at `pos` in `world` to change; `None` where
-    /// [`block_entity`](Self::block_entity) is.
+    /// The block entity at `pos` in `world` to change; `None` if its chunk is not loaded or the
+    /// block takes none. A block that takes one and has none (a generator's block, or one
+    /// [`World::set_block`](crate::world::World::set_block) placed this tick) gets an empty one
+    /// first, as a window opening on it does, raising no event.
     pub fn block_entity_mut(&mut self, world: world::Id, pos: BlockPos) -> Option<Mut<'_>> {
         let world = world.index();
+        if self.state.rules.block_entities.get(world, pos).is_none() {
+            create(
+                self.state,
+                world,
+                pos,
+                None,
+                &Stack::EMPTY,
+                Face::Up,
+                entity::Raise::Quiet,
+            );
+        }
         self.state.rules.block_entities.get(world, pos)?;
         Some(Mut {
             state: self.state,
@@ -537,7 +551,7 @@ mod tests {
     use tokio::sync::mpsc::Receiver;
 
     use crate::event::Listeners;
-    use crate::item::{self, Stack};
+    use crate::item;
     use crate::nbt::{Compound, Value, child_compound};
     use crate::pool::Pool;
     use crate::protocol::Rgba;
@@ -676,7 +690,7 @@ mod tests {
 
     fn text(lines: [&str; 4], argb: u32) -> SignText {
         let colour = block_entity::from_argb(argb.cast_signed());
-        SignText::new(lines.map(str::to_owned), colour, false).unwrap()
+        SignText::new(lines.map(str::to_owned), colour).unwrap()
     }
 
     // api: World::setBlock
@@ -714,6 +728,54 @@ mod tests {
         h.state.worlds[0].set_block(sign_at, block::AIR).unwrap();
         h.tick(Vec::new());
         assert!(h.cx().block_entity(WORLD, sign_at).is_none());
+    }
+
+    /// A block that takes a block entity and has none, as a generator leaves it, gets an empty one
+    /// on its first use: a write makes it at once, and breaking it drops what an empty one gives.
+    #[test]
+    fn a_block_without_its_block_entity_gets_one_on_first_use() {
+        let mut h = Harness::new();
+        let (sign_at, bed_at, stone_at) = (h.spot(1), h.spot(3), h.spot(5));
+        let world = &mut h.state.worlds[0];
+        world
+            .set_block(sign_at, block::Kind::OakSign.default_state())
+            .unwrap();
+        world
+            .set_block(bed_at, block::Kind::Bed.default_state())
+            .unwrap();
+        world
+            .set_block(stone_at, block::Kind::Stone.default_state())
+            .unwrap();
+        let bed = crate::tick::block_entity::own_item(&h.state, 0, bed_at).expect("a bed's item");
+        assert_eq!(
+            bed.meta(),
+            u16::from(crate::tick::block_entity::decor::DEFAULT_BED_COLOUR),
+            "an empty bed's colour"
+        );
+        assert!(h.state.rules.block_entities.get(0, bed_at).is_none());
+        let mut cx = h.cx();
+        assert!(cx.block_entity_mut(WORLD, stone_at).is_none());
+        let mut t = cx
+            .block_entity_mut(WORLD, sign_at)
+            .expect("made on first use");
+        t.set_sign_text(Side::Front, text(["First", "", "", ""], 0xff00_0000))
+            .unwrap();
+        assert_eq!(
+            h.cx().block_entity(WORLD, sign_at).and_then(|e| e
+                .sign_text(Side::Front)
+                .and_then(|s| s.line(0))
+                .map(str::to_owned)),
+            Some("First".to_owned())
+        );
+        h.tick(Vec::new());
+        assert_eq!(
+            h.cx().block_entity(WORLD, sign_at).and_then(|e| e
+                .sign_text(Side::Front)
+                .and_then(|s| s.line(0))
+                .map(str::to_owned)),
+            Some("First".to_owned()),
+            "the block change phase keeps it"
+        );
     }
 
     // api: World::getTile, World::getTileAt, Chunk::getTile, Tile, Tile::getPosition,

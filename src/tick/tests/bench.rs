@@ -185,6 +185,7 @@ impl Bench {
         let delivered = Instant::now();
         deliver(&mut self.state, &mut self.output, &mut log);
         boundary(&mut self.state, &mut self.output, &mut log);
+        flush(&mut self.state, &self.pool, &mut self.output);
         let end = Instant::now();
         add_phase(&mut self.phases, Part::Output, end - delivered);
         self.ticks.push(end - start);

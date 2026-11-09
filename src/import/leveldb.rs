@@ -235,6 +235,11 @@ impl Db {
 
     /// Calls `f` with each live key in `[start, end)` (to the last key without `end`) and its
     /// value, in key order, until `f` breaks.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the heap holds only indexes of `sources`, each on the entry it was \
+                  pushed with until it advances"
+    )]
     pub(crate) fn scan(
         &mut self,
         start: &[u8],
@@ -290,12 +295,14 @@ impl Db {
             if end.is_some_and(|end| user.as_slice() >= end) {
                 break;
             }
-            let Some(source) = sources.get_mut(i) else {
-                break;
-            };
+            let source = sources
+                .get_mut(i)
+                .expect("a heap entry is a source's index");
             if last.as_deref() != Some(user.as_slice()) {
                 if tag & 0xff == u64::from(KIND_VALUE) {
-                    let value = source.entry().map_or(&[][..], |(_, _, value)| value);
+                    let (_, _, value) = source
+                        .entry()
+                        .expect("a source in the heap is on the entry it was pushed with");
                     if f(&user, value)?.is_break() {
                         return Ok(());
                     }
@@ -724,6 +731,10 @@ fn replay(manifest: &[u8]) -> Result<Version> {
 }
 
 /// Applies one version edit: its deleted tables, then its new ones (LevelDB `VersionSet::Builder`).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: `level` reads only levels below LEVELS, the length of `files`"
+)]
 fn apply(version: &mut Version, record: &[u8]) -> Result<()> {
     let mut bytes = Bytes(record);
     let mut deleted = Vec::new();
@@ -781,14 +792,10 @@ fn apply(version: &mut Version, record: &[u8]) -> Result<()> {
         }
     }
     for (level, number) in deleted {
-        if let Some(files) = version.files.get_mut(level) {
-            files.remove(&number);
-        }
+        version.files[level].remove(&number);
     }
     for (level, file) in added {
-        if let Some(files) = version.files.get_mut(level) {
-            files.insert(file.number, file);
-        }
+        version.files[level].insert(file.number, file);
     }
     Ok(())
 }
@@ -858,12 +865,16 @@ fn compare(a: &[u8], b: &[u8]) -> Ordering {
     a_user.cmp(b_user).then_with(|| b_tag.cmp(&a_tag))
 }
 
-/// The user key and tag of an internal key (decoders reject keys shorter than a tag).
+/// The user key and tag of an internal key.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: decoders reject internal keys shorter than a tag (`table::check_internal`)"
+)]
 fn split(key: &[u8]) -> (&[u8], u64) {
-    match key.split_last_chunk::<TAG>() {
-        Some((user, tag)) => (user, u64::from_le_bytes(*tag)),
-        None => (key, 0),
-    }
+    let (user, tag) = key
+        .split_last_chunk::<TAG>()
+        .expect("an internal key holds a tag");
+    (user, u64::from_le_bytes(*tag))
 }
 
 /// The masked CRC-32C of `parts` put together, as LevelDB stores checksums.

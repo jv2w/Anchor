@@ -1118,7 +1118,7 @@ fn a_player_the_whitelist_keeps_out_gets_none_of_the_resource_packs() {
     );
     let mut config = config(Compression::Snappy);
     config.general.resource_packs = vec![file];
-    config.general.white_list = true;
+    config.general.whitelist = true;
     let server = Running::start("whitelist-packs", config, &dir);
     let lines = play(&server, "rejected", "whitelist-packs", &[]);
     let refused = result(&lines);

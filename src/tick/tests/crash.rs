@@ -874,7 +874,7 @@ fn commit_counts(state: &mut State, output: &mut Output) -> Counts {
     }
     for (_, _, kind, list) in &snapshot.extras {
         if *kind == ChunkKind::BlockEntities {
-            for c in list {
+            for c in list.iter() {
                 if let Some(Value::List(List::Compound(items))) = c.get("Items") {
                     for s in stacks(items) {
                         add(&mut counts, &s);

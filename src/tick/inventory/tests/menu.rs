@@ -333,7 +333,7 @@ fn open(
         w.ack(s);
         got.extend(tick_each(w, Vec::new()).swap_remove(0));
     }
-    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id != 0), Some(true));
+    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id.is_some()), Some(true));
     (menu, got)
 }
 
@@ -445,7 +445,7 @@ fn menu_ids_are_refused_once_used_up_and_never_wrap() {
 /// The menu window's ID and the stack network ID of menu slot `slot`.
 fn shown(w: &World, s: SessionId, slot: usize) -> (u8, i32) {
     let window = w.inv(s).window.as_ref().unwrap();
-    (window.id, window.ids[slot].net)
+    (window.id.unwrap(), window.ids[slot].net)
 }
 
 /// The request action taking one item from menu slot `slot` onto the cursor.
@@ -681,7 +681,7 @@ fn open_editable(w: &mut World, s: SessionId, menu: Menu, answer: Answer) -> m::
         w.ack(s);
         tick_each(w, Vec::new());
     }
-    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id != 0), Some(true));
+    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id.is_some()), Some(true));
     menu
 }
 

@@ -279,7 +279,7 @@ impl Landed {
     /// listener that set one of those three
     /// itself, or changed a self-kill, is followed as it left the event; the absorption modifier
     /// can only use absorption up.
-    fn change(&mut self, settings: &Settings, event: &mut EntityDamage, player: &Player) {
+    fn change(&mut self, event: &mut EntityDamage, player: &Player) {
         let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
         let (now, then) = (bits(&event.modifiers), bits(&self.modifiers));
         let changed = event.base_damage.to_bits() != self.hit.base.to_bits() || now != then;
@@ -313,14 +313,7 @@ impl Landed {
                 self.absorption,
                 self.totem,
                 self.modifiers,
-            ) = finish(
-                settings,
-                player,
-                self.hit.cause,
-                event.base_damage,
-                sum,
-                before,
-            );
+            ) = finish(player, self.hit.cause, event.base_damage, sum, before);
             event.modifiers = self.modifiers;
         }
         self.knockback = event.knockback;
@@ -388,7 +381,7 @@ pub(super) fn damage_by(
     hurt(
         state,
         session,
-        Hit {
+        &Hit {
             cause,
             base: amount,
             extra,
@@ -427,7 +420,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .get(&attacker)
         .map(|p| p.inventory.held().clone())
         .unwrap_or_default();
-    let landed = hurt(state, target, hit);
+    let landed = hurt(state, target, &hit);
     swing(state, attacker);
     let Some(Landed { modifiers, .. }) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
@@ -474,7 +467,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
 
 /// Checks a hit, asks the [`EntityDamage`] listeners and applies it; the hit as the listeners
 /// left it, `None` if it did not land.
-fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
+fn hurt(state: &mut State, session: SessionId, hit: &Hit) -> Option<Landed> {
     let landed = assess(state, session, hit)?;
     let id = player::Id::new(session);
     let Ok(mut event) = super::ask(
@@ -492,7 +485,7 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     };
     let mut landed = landed;
     if let (Some(e), Some(player)) = (&mut event, state.players.get(&session)) {
-        landed.change(&state.settings, e, player);
+        landed.change(e, player);
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
@@ -521,7 +514,7 @@ pub(super) fn damage_quiet(
         thorns: false,
         source: DamageSource::None,
     };
-    let Some(landed) = assess(state, session, hit) else {
+    let Some(landed) = assess(state, session, &hit) else {
         return false;
     };
     apply(state, session, &landed, entity::Raise::Quiet);
@@ -533,13 +526,15 @@ pub(super) fn damage_quiet(
 /// settings turn off hurts no one, whatever deals the hit (`fall-damage`: an ender pearl's fall
 /// too; `drowning`; `pvp`: another player's melee, projectile or explosion), and with
 /// `armor = false` worn armor reduces nothing.
-fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
+fn assess(state: &mut State, session: SessionId, hit: &Hit) -> Option<Landed> {
     let tick = state.tick;
     let seed = world_seed(state, session)?;
     let settings = &state.settings;
+    let player = state.players.get_mut(&session)?;
+    let switches = player.survival.switches;
     let spared = match hit.cause {
         Damage::Fall => !settings.fall_damage,
-        Damage::Drowning | Damage::Suffocation => !settings.drowning,
+        Damage::Drowning | Damage::Suffocation => !switches.drowning,
         Damage::Suicide => false,
         _ => {
             !settings.pvp
@@ -548,14 +543,10 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
                     .is_some_and(|attacker| attacker != session)
         }
     };
-    if spared {
+    if spared || !lands(player, hit) {
         return None;
     }
-    let armor = settings.armor;
-    let player = state.players.get_mut(&session)?;
-    if !lands(player, &hit) {
-        return None;
-    }
+    let armor = switches.armor;
     let base = hit.base;
     let mut sum = hit.extra;
     let mut modifiers = hit.parts;
@@ -600,10 +591,10 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let (final_damage, absorption, totem, finished) = if hit.cause == Damage::Suicide {
         (total(base, sum), 0.0, false, modifiers)
     } else {
-        finish(settings, player, hit.cause, base, sum, modifiers)
+        finish(player, hit.cause, base, sum, modifiers)
     };
     Some(Landed {
-        hit,
+        hit: *hit,
         sum,
         before: modifiers,
         final_damage,
@@ -636,11 +627,10 @@ fn lands(player: &Player, hit: &Hit) -> bool {
 
 /// Works out the last modifiers of a hit of `base` damage for `cause` on `player` as it is now,
 /// after `sum`, the modifiers before them added up: the absorption it uses, a helmet against a
-/// falling block (with `armor` in the `settings`), and a held totem's compensation where the hit
-/// would kill. Returns the final damage, the absorption used (0 or negative), whether the totem
-/// saves the player, and `modifiers` with those three added.
+/// falling block (with `armor` on), and a held totem's compensation where the hit would kill.
+/// Returns the final damage, the absorption used (0 or negative), whether the totem saves the
+/// player, and `modifiers` with those three added.
 fn finish(
-    settings: &Settings,
     player: &Player,
     cause: Damage,
     base: f64,
@@ -658,7 +648,7 @@ fn finish(
             .first()
             .is_some_and(|h| h.item().and_then(Type::armor).is_some())
     };
-    if settings.armor && cause == Damage::FallingBlock && helmet() {
+    if s.switches.armor && cause == Damage::FallingBlock && helmet() {
         let d = total(base, sum) / 4.0;
         sum -= d;
         set(&mut modifiers, DamageModifier::ArmorHelmet, -d);
@@ -751,7 +741,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     let s = &mut player.survival;
     s.absorption = math::max(s.absorption + absorption, 0.0);
     s.mark(ABSORPTION);
-    let armor = state.settings.armor;
+    let armor = s.switches.armor;
     if armor && hit.cause.event_cause().is_reduced_by_armor() {
         damage_armor(state, session, hit.base);
     }
@@ -1042,7 +1032,7 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
         hurt(
             state,
             attacker,
-            Hit {
+            &Hit {
                 cause: Damage::Magic,
                 base: dealt,
                 extra,
@@ -1107,7 +1097,7 @@ pub(super) fn combust(state: &mut State, session: SessionId, seconds: u32, sourc
 /// Ignites the player for `seconds`: fire protection shortens it by 15 % per level of the
 /// best piece; a longer burn replaces a shorter one. True if the player burns longer than before.
 pub(super) fn ignite(player: &mut Player, seconds: u32) -> bool {
-    let level = f64::from(highest_armor_level(player, Enchantment::FireProtection));
+    let level = f64::from(protection_level(player, Enchantment::FireProtection));
     let s = f64::from(seconds);
     let cut = math::min(s, s * level * 0.15).floor();
     #[expect(
@@ -1128,8 +1118,18 @@ pub(super) fn ignite(player: &mut Player, seconds: u32) -> bool {
     longer
 }
 
+/// The highest level of a protection enchantment on the armor worn, 0 with `armor = false`: the
+/// armor then protects from nothing.
+pub(in crate::tick) fn protection_level(player: &Player, enchantment: Enchantment) -> u32 {
+    if player.survival.switches.armor {
+        highest_armor_level(player, enchantment)
+    } else {
+        0
+    }
+}
+
 /// The highest level of an enchantment on the armor worn.
-pub(in crate::tick) fn highest_armor_level(player: &Player, enchantment: Enchantment) -> u32 {
+pub(super) fn highest_armor_level(player: &Player, enchantment: Enchantment) -> u32 {
     player
         .inventory
         .armor()
@@ -1999,14 +1999,15 @@ pub(super) fn extinguished(state: &mut State, session: SessionId, cause: Extingu
 /// Runs suffocation, air and the hit cooldown, each tick; with `drowning = false` only the hit
 /// cooldown.
 pub(super) fn living_tick(state: &mut State, session: SessionId) {
-    if state
+    let Some(drowning) = state
         .players
         .get(&session)
-        .is_none_or(|p| p.survival.is_dead())
-    {
+        .filter(|p| !p.survival.is_dead())
+        .map(|p| p.survival.switches.drowning)
+    else {
         return;
-    }
-    if state.settings.drowning && air_tick(state, session) {
+    };
+    if drowning && air_tick(state, session) {
         damage(state, session, 2.0, Damage::Drowning);
     }
     // After the air's hits: the cooldown's last tick still weighs them against the last hit.

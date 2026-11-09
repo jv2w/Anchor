@@ -62,7 +62,7 @@ pub(crate) const REQUEST_CAPACITY: usize = 64;
 /// answers on top, so the save thread never waits on a full queue in normal running.
 pub(crate) const RESPONSE_CAPACITY: usize = 2048;
 
-/// A world of the server: its place in the tick's world list ([`place`]; the default world is
+/// A world of the server: its place in the tick's world list ([`list_index`]; the default world is
 /// 0) plus [`MAX_WORLDS`] for each world that held the place before it this run, so a world that
 /// takes the place of one gone never has the index of the one before.
 pub(crate) type WorldIndex = usize;
@@ -103,8 +103,13 @@ pub(crate) enum Response {
         pos: ChunkPos,
         loaded: Loaded,
     },
-    /// The saved data of a requested player.
-    Player { key: PlayerKey, data: PlayerLoad },
+    /// The saved data of a requested player, and its input log form, made on the save thread so
+    /// the tick encodes nothing for the log (`Err` for an extra that does not encode).
+    Player {
+        key: PlayerKey,
+        data: PlayerLoad,
+        logged: crate::protocol::Result<crate::tick::LoggedPlayer>,
+    },
     /// The snapshot taken before tick `start` is committed.
     Committed { start: u64 },
     /// The snapshot taken before tick `start` could not be committed, even after reopening the
@@ -134,22 +139,37 @@ pub(crate) enum Loaded {
 
 /// The extras of one chunk: one raw NBT list per kind of [`ChunkKind::EXTRAS`].
 /// An empty list is no value in the file.
+///
+/// Each list is shared ([`Self::share`]): a snapshot takes the changed lists of the tick's
+/// chunks without copying them on the tick, and a change while a snapshot holds a list copies it
+/// then ([`Self::get_mut`]).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct ChunkExtras([Vec<Compound>; 2]);
+pub(crate) struct ChunkExtras([Arc<Vec<Compound>>; 2]);
 
 impl ChunkExtras {
     /// The list of `kind`.
     pub(crate) fn get(&self, kind: ChunkKind) -> &[Compound] {
-        let [block_entities, entities] = &self.0;
-        match kind {
-            ChunkKind::BlockEntities => block_entities,
-            ChunkKind::Entities => entities,
-        }
+        self.list(kind)
     }
 
-    /// The list of `kind` to change.
+    /// The list of `kind`, shared, for a snapshot.
+    pub(crate) fn share(&self, kind: ChunkKind) -> Arc<Vec<Compound>> {
+        Arc::clone(self.list(kind))
+    }
+
+    /// The list of `kind` to change; copied first while a snapshot shares it.
     pub(crate) fn get_mut(&mut self, kind: ChunkKind) -> &mut Vec<Compound> {
         let [block_entities, entities] = &mut self.0;
+        let list = match kind {
+            ChunkKind::BlockEntities => block_entities,
+            ChunkKind::Entities => entities,
+        };
+        Arc::make_mut(list)
+    }
+
+    /// The shared list of `kind`.
+    fn list(&self, kind: ChunkKind) -> &Arc<Vec<Compound>> {
+        let [block_entities, entities] = &self.0;
         match kind {
             ChunkKind::BlockEntities => block_entities,
             ChunkKind::Entities => entities,
@@ -202,10 +222,12 @@ pub(crate) struct Snapshot {
     pub(crate) identity: u64,
     /// Changed chunks of persistent worlds. They share their sub-chunks with the live world.
     pub(crate) chunks: Vec<(WorldIndex, ChunkPos, Chunk)>,
-    /// Changed player data.
-    pub(crate) players: Vec<(PlayerKey, PlayerData)>,
-    /// Changed extras lists of chunks of persistent worlds; an empty list deletes the value.
-    pub(crate) extras: Vec<(WorldIndex, ChunkPos, ChunkKind, Vec<Compound>)>,
+    /// Changed player data, shared with the tick's departed players
+    /// (`tick::save::Offline`), so taking it copies nothing on the tick.
+    pub(crate) players: Vec<(PlayerKey, Arc<PlayerData>)>,
+    /// Changed extras lists of chunks of persistent worlds, shared with the tick's
+    /// ([`ChunkExtras::share`]); an empty list deletes the value.
+    pub(crate) extras: Vec<(WorldIndex, ChunkPos, ChunkKind, Arc<Vec<Compound>>)>,
     /// Worlds deleted since the last request that named them, as [`Request::DeleteWorlds`] gives
     /// them: the commit forgets them first, as a world in `new_worlds` may take a deleted one's
     /// name and index.
@@ -492,7 +514,7 @@ impl Thread {
                 .partition(|name| storage::world_name_key(name) == key);
             self.deleted = deleted;
             if !made_again.is_empty()
-                && let Some(plan) = self.plans.get_mut(place(world.index))
+                && let Some(plan) = self.plans.get_mut(list_index(world.index))
             {
                 plan.clear = true;
             }
@@ -851,11 +873,6 @@ fn log_refused(path: &std::path::Path, error: &storage::Error) {
         error = error as &(dyn std::error::Error + 'static),
         "data file refused; it is left as it was"
     );
-}
-
-/// The names of the world files of `data/worlds/`, in name order ([`world_names`]).
-pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
-    world_names(data_dir)
 }
 
 /// The place of a new file of the world `name`: `None` if `data/worlds/` holds the file of the
@@ -1576,13 +1593,13 @@ fn load_chunks(
 ) -> Result<(), storage::Error> {
     let mut by_world: BTreeMap<WorldIndex, Vec<ChunkId>> = BTreeMap::new();
     for &(w, pos) in keys {
-        if let Some(number) = plans.get(place(w)).and_then(|p| p.number) {
+        if let Some(number) = plans.get(list_index(w)).and_then(|p| p.number) {
             by_world.entry(w).or_default().push(chunk_id(number, pos));
         }
     }
     let mut read: BTreeMap<WorldIndex, std::vec::IntoIter<ChunkValues>> = BTreeMap::new();
     for (w, ids) in by_world {
-        let values = match plans.get_mut(place(w)).and_then(|p| p.file.as_mut()) {
+        let values = match plans.get_mut(list_index(w)).and_then(|p| p.file.as_mut()) {
             Some(file) => file
                 .storage
                 .read_chunks(&ids)
@@ -1610,7 +1627,7 @@ fn load_chunks(
     let plans: &[Plan] = plans;
     for turn in items.chunks(pool.threads()) {
         let mut answers = pool.map_in_turns(turn, |(world, pos, values)| {
-            let mut loaded = match (plans.get(place(*world)), values) {
+            let mut loaded = match (plans.get(list_index(*world)), values) {
                 (None, _) => Loaded::Damaged,
                 (Some(plan), None) => Loaded::Generated(
                     Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, *pos)),
@@ -1834,7 +1851,8 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
             PlayerLoad::Damaged
         }
     };
-    Response::Player { key, data }
+    let logged = crate::tick::LoggedPlayer::of(&data);
+    Response::Player { key, data, logged }
 }
 
 /// The record of the player `key` in the players' file `storage`, if there is one.
@@ -1888,18 +1906,18 @@ fn commit(
         worlds.entry(at).or_default().0.clear();
     }
     for &(world, values) in &snapshot.worlds {
-        if let Some(plan) = plans.get(place(world))
+        if let Some(plan) = plans.get(list_index(world))
             && let Some(record) = world_record(plan, values)
         {
-            let (batch, written) = worlds.entry(place(world)).or_default();
+            let (batch, written) = worlds.entry(list_index(world)).or_default();
             batch.put(Key::World, seal(&Key::World.to_bytes(), &record)?);
             *written = Some(values);
         }
     }
     let sealed = pool.map_in_turns(&snapshot.chunks, |(world, pos, chunk)| {
-        let number = plans.get(place(*world)).and_then(|p| p.number)?;
+        let number = plans.get(list_index(*world)).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
-        Some((place(*world), seal_terrain(id, chunk)))
+        Some((list_index(*world), seal_terrain(id, chunk)))
     });
     for (world, values) in sealed.into_iter().flatten() {
         let (batch, _) = worlds.entry(world).or_default();
@@ -1911,9 +1929,9 @@ fn commit(
         }
     }
     let sealed = pool.map_in_turns(&snapshot.extras, |(world, pos, kind, list)| {
-        let number = plans.get(place(*world)).and_then(|p| p.number)?;
+        let number = plans.get(list_index(*world)).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
-        Some((place(*world), id, *kind, seal_pages(id, *kind, list)))
+        Some((list_index(*world), id, *kind, seal_pages(id, *kind, list)))
     });
     for (world, id, kind, pages) in sealed.into_iter().flatten() {
         let pages = pages?;
@@ -2340,7 +2358,7 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) -> Ve
             plan.number = world.number;
             plan.values = None;
         }
-        match plans.get_mut(place(world.index)) {
+        match plans.get_mut(list_index(world.index)) {
             Some(slot) => *slot = plan,
             None => plans.push(plan),
         }
@@ -2406,15 +2424,16 @@ fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Err
 /// each at, if any (Windows cannot remove an open file), and saves nothing more of it.
 fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
     for world in worlds {
-        if let Some(plan) = world.index.and_then(|i| plans.get_mut(place(i))) {
+        if let Some(plan) = world.index.and_then(|i| plans.get_mut(list_index(i))) {
             plan.file = None;
             plan.number = None;
         }
     }
 }
 
-/// The place in the world list of the world at `index` ([`WorldIndex`]).
-pub(crate) fn place(index: WorldIndex) -> usize {
+/// The index in the world lists of the world at `index` ([`WorldIndex`]): its place, which a
+/// later world takes once it is gone.
+pub(crate) fn list_index(index: WorldIndex) -> usize {
     index % MAX_WORLDS
 }
 
@@ -2516,7 +2535,7 @@ pub(crate) fn world_file_name(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread and the start list the world folder"
 )]
-fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
+pub(crate) fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
     let dir = data_dir.join(storage::WORLD_DIR);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
@@ -2783,15 +2802,15 @@ pub(crate) mod tests {
         let mut snapshot = Snapshot {
             start: 77,
             chunks: vec![(0, changed, changed_chunk(changed))],
-            players: vec![(player.clone(), data.clone())],
+            players: vec![(player.clone(), Arc::new(data.clone()))],
             worlds: vec![(0, WorldValues::of(&stopped_hard_world()))],
             ..Snapshot::default()
         };
         for (pos, extras) in [(changed, &extras), (only_extras, &more)] {
             for kind in ChunkKind::EXTRAS {
-                let list = extras.get(kind).to_vec();
+                let list = extras.share(kind);
                 // Temporary worlds are never saved.
-                snapshot.extras.push((1, pos, kind, list.clone()));
+                snapshot.extras.push((1, pos, kind, Arc::clone(&list)));
                 snapshot.extras.push((0, pos, kind, list));
             }
         }
@@ -2879,6 +2898,24 @@ pub(crate) mod tests {
     /// Random extras and player extras through commit, restart and load, 20 rounds over the same
     /// chunks: every load gives exactly the bytes of the last commit, and empty lists delete their
     /// values.
+    /// A list a snapshot shares is taken without a copy, and stays as taken when the tick changes
+    /// the chunk's list after.
+    #[test]
+    fn a_shared_extras_list_keeps_what_the_snapshot_took() {
+        let mut rng = Rng(0x5a7e_0003);
+        let mut extras = ChunkExtras::default();
+        extras
+            .get_mut(ChunkKind::Entities)
+            .push(random_compound(&mut rng, 2));
+        let taken = extras.share(ChunkKind::Entities);
+        assert!(Arc::ptr_eq(&taken, &extras.share(ChunkKind::Entities)));
+        extras
+            .get_mut(ChunkKind::Entities)
+            .push(random_compound(&mut rng, 2));
+        assert_eq!(taken.len(), 1);
+        assert_eq!(extras.get(ChunkKind::Entities).len(), 2);
+    }
+
     #[test]
     fn extras_and_player_extras_round_trip_byte_identical() {
         let dir = TempDir::new("extras");
@@ -2904,7 +2941,7 @@ pub(crate) mod tests {
                         .map(|_| random_compound(&mut rng, 3))
                         .collect();
                     *held.get_mut(kind) = list.clone();
-                    snapshot.extras.push((0, *pos, kind, list));
+                    snapshot.extras.push((0, *pos, kind, Arc::new(list)));
                 }
             }
             let data = PlayerData {
@@ -2912,7 +2949,9 @@ pub(crate) mod tests {
                 position: [f64::from(round) / 3.0, 64.0, -0.1],
                 extra: random_compound(&mut rng, 5),
             };
-            snapshot.players.push((player.clone(), data.clone()));
+            snapshot
+                .players
+                .push((player.clone(), Arc::new(data.clone())));
             let loads = vec![
                 Request::Commit(Box::new(snapshot)),
                 Request::Chunks(positions.iter().map(|&p| (0, p)).collect()),
@@ -3278,7 +3317,7 @@ pub(crate) mod tests {
             };
             for k in ChunkKind::EXTRAS {
                 let list = vec![random_compound(&mut rng, 2), random_compound(&mut rng, 2)];
-                snapshot.extras.push((0, pos, k, list));
+                snapshot.extras.push((0, pos, k, Arc::new(list)));
             }
             let (_, _, result) = serve(&dir, vec![Request::Commit(Box::new(snapshot))]);
             result.unwrap();
@@ -3451,7 +3490,7 @@ pub(crate) mod tests {
         let huge = Compound::from([("bytes".to_owned(), Value::ByteArray(vec![0; 17 << 20]))]);
         let failing = Snapshot {
             start: 1,
-            extras: vec![(0, pos, ChunkKind::Entities, vec![huge])],
+            extras: vec![(0, pos, ChunkKind::Entities, Arc::new(vec![huge]))],
             ..Snapshot::default()
         };
         let later = Snapshot {
@@ -3591,7 +3630,7 @@ pub(crate) mod tests {
         for (start, list) in [(1, signs.clone()), (2, signs[..10].to_vec())] {
             let snapshot = Snapshot {
                 start,
-                extras: vec![(0, pos, ChunkKind::BlockEntities, list.clone())],
+                extras: vec![(0, pos, ChunkKind::BlockEntities, Arc::new(list.clone()))],
                 ..Snapshot::default()
             };
             let requests = vec![
@@ -4139,7 +4178,7 @@ pub(crate) mod tests {
             start: 33,
             identity: 7,
             chunks: vec![(0, pos, changed_chunk(pos))],
-            players: vec![(player.clone(), data.clone())],
+            players: vec![(player.clone(), Arc::new(data.clone()))],
             worlds: vec![(
                 0,
                 WorldValues {
@@ -4205,17 +4244,17 @@ pub(crate) mod tests {
             chunks: vec![(0, pos, changed_chunk(pos))],
             players: vec![(
                 player.clone(),
-                PlayerData {
+                Arc::new(PlayerData {
                     world: "world".to_owned(),
                     position: [0.5, -59.0, 0.5],
                     extra: random_compound(&mut rng, 4),
-                },
+                }),
             )],
             extras: vec![(
                 0,
                 pos,
                 ChunkKind::BlockEntities,
-                vec![random_compound(&mut rng, 3)],
+                Arc::new(vec![random_compound(&mut rng, 3)]),
             )],
             worlds: vec![(
                 0,
@@ -4288,7 +4327,7 @@ pub(crate) mod tests {
             start,
             identity: start,
             chunks: vec![(0, pos, changed_chunk(pos))],
-            players: vec![(player.clone(), data(start))],
+            players: vec![(player.clone(), Arc::new(data(start)))],
             worlds: vec![(
                 0,
                 WorldValues {
@@ -4456,7 +4495,7 @@ pub(crate) mod tests {
             identity: 5,
             players: keys
                 .iter()
-                .map(|&key| (key.clone(), data.clone()))
+                .map(|&key| (key.clone(), Arc::new(data.clone())))
                 .collect(),
             ..Snapshot::default()
         };
@@ -4590,7 +4629,7 @@ pub(crate) mod tests {
             .map(|(n, _)| n.as_str())
             .collect();
         assert_eq!(names, ["Lobby", "arena2"]);
-        assert_eq!(world_files(&dir.0).unwrap(), ["Lobby", "arena2", "world"]);
+        assert_eq!(world_names(&dir.0).unwrap(), ["Lobby", "arena2", "world"]);
         assert!(new_world_place(&dir.0, "LOBBY").unwrap().is_none());
         assert_eq!(
             new_world_place(&dir.0, "lobby2").unwrap().map(|p| p.file),
@@ -4620,7 +4659,7 @@ pub(crate) mod tests {
             "{refused:?}"
         );
         assert!(!Place::world(&dir.0, "world").file.exists());
-        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS);
+        assert_eq!(world_names(&dir.0).unwrap().len(), MAX_WORLDS);
     }
 
     /// A start whose declared worlds would together make more world files than `data/worlds/`
@@ -4654,7 +4693,7 @@ pub(crate) mod tests {
         );
         assert!(!Place::world(&dir.0, "world").file.exists());
         assert!(!Place::world(&dir.0, "lobby").file.exists());
-        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS - 1);
+        assert_eq!(world_names(&dir.0).unwrap().len(), MAX_WORLDS - 1);
     }
 
     /// A declared world whose file passes the start's check but does not open (it is read-only,
@@ -4767,7 +4806,7 @@ pub(crate) mod tests {
         .unwrap();
         handle.join().unwrap().unwrap();
         assert!(!Place::world(&dir.0, "extra").file.exists());
-        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS);
+        assert_eq!(world_names(&dir.0).unwrap().len(), MAX_WORLDS);
     }
 
     /// A declared world whose file has its name in another letter case opens that file, at a
@@ -4885,7 +4924,7 @@ pub(crate) mod tests {
                 .is_some()
         };
         serve_lobby(vec![Request::Commit(Box::new(snapshot(5))), delete()]);
-        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        assert_eq!(world_names(&dir.0).unwrap(), ["lobby", "world"]);
         assert!(!marked(), "no commit holds the deletion");
         serve_lobby(vec![
             Request::Commit(Box::new(snapshot(6))),
@@ -4897,7 +4936,7 @@ pub(crate) mod tests {
         ]);
         assert!(!Place::world(&dir.0, "lobby").file.exists());
         assert!(Place::world(&dir.0, "world").file.exists());
-        assert_eq!(world_files(&dir.0).unwrap(), ["world"]);
+        assert_eq!(world_names(&dir.0).unwrap(), ["world"]);
         // The main file's commit holds the deletion until a later commit or start drops the mark
         // the removed file no longer needs.
         assert!(marked(), "the commit holds the deletion");
@@ -4945,12 +4984,12 @@ pub(crate) mod tests {
         batch.put(mark.clone(), seal(&mark.to_bytes(), &Mark).unwrap());
         storage.commit(&batch).unwrap();
         drop(storage);
-        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        assert_eq!(world_names(&dir.0).unwrap(), ["lobby", "world"]);
         for _ in 0..2 {
             let opened = open(&dir.0, specs()).unwrap();
             assert_eq!(opened.catalog.stored, []);
             drop(opened);
-            assert_eq!(world_files(&dir.0).unwrap(), ["world"]);
+            assert_eq!(world_names(&dir.0).unwrap(), ["world"]);
             let mut storage = Storage::open_replica(&main.file).unwrap();
             assert!(
                 storage.read(std::slice::from_ref(&mark)).unwrap()[0]
@@ -5043,7 +5082,7 @@ pub(crate) mod tests {
             )),
             "{answers:?}"
         );
-        assert_eq!(world_files(&dir.0).unwrap(), ["lobby", "world"]);
+        assert_eq!(world_names(&dir.0).unwrap(), ["lobby", "world"]);
         let mut lobby = Storage::open_replica(&Place::world(&dir.0, "lobby").file).unwrap();
         let old = lobby.read_chunks(&[chunk_id(1, pos)]).unwrap();
         assert!(

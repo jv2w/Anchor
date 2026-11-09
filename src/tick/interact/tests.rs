@@ -889,26 +889,26 @@ fn destroying_for_each_cause_leaves_air_and_respects_the_entity_cap() {
     let up = BlockPos::new(2, -59, 0);
     h.set(TARGET, door);
     h.set(up, top);
-    assert!(destroy(&mut h.state, 0, TARGET, quiet_explosion()));
+    assert!(destroy(&mut h.state, 0, TARGET, &quiet_explosion()));
     assert_eq!(h.block(TARGET), block::AIR);
     assert_eq!(h.block(up), block::AIR);
     // Ice leaves air, not water; so does an explosion.
     h.set(TARGET, Kind::Ice.default_state());
-    assert!(destroy(&mut h.state, 0, TARGET, quiet_explosion()));
+    assert!(destroy(&mut h.state, 0, TARGET, &quiet_explosion()));
     assert_eq!(h.block(TARGET), block::AIR);
     h.set(TARGET, Kind::Stone.default_state());
     assert!(destroy(
         &mut h.state,
         0,
         TARGET,
-        Destroy::Explosion {
+        &Destroy::Explosion {
             size: 4.0,
             raise: Raise::Events
         }
     ));
     assert_eq!(h.block(TARGET), block::AIR);
     // Air is not destroyed again.
-    assert!(!destroy(&mut h.state, 0, TARGET, quiet_explosion()));
+    assert!(!destroy(&mut h.state, 0, TARGET, &quiet_explosion()));
     // A player's break whose drop finds no room changes nothing: the world is at its entity cap.
     // (The door's drop is one of the entities already.)
     let mut i = 0_u32;
@@ -933,7 +933,7 @@ fn destroying_for_each_cause_leaves_air_and_respects_the_entity_cap() {
         &mut h.state,
         0,
         TARGET,
-        Destroy::Player { session, tool }
+        &Destroy::Player { session, tool }
     ));
     assert_eq!(h.block(TARGET), Kind::Stone.default_state());
 }
@@ -1411,9 +1411,9 @@ fn explosions_break_both_door_halves_once_without_break_particles() {
         size: 1.0,
         raise: Raise::Events,
     };
-    assert!(destroy(&mut h.state, 0, up, explosion.clone()));
+    assert!(destroy(&mut h.state, 0, up, &explosion));
     assert_eq!((h.block(TARGET), h.block(up)), (block::AIR, block::AIR));
-    assert!(!destroy(&mut h.state, 0, TARGET, explosion));
+    assert!(!destroy(&mut h.state, 0, TARGET, &explosion));
     h.run(Vec::new());
     let sent = h.packets();
     let particles = sent.iter().any(|p| {
@@ -1681,7 +1681,7 @@ fn explosion_at_the_entity_cap_keeps_chest_items_as_spill() {
         &mut h.state,
         0,
         TARGET,
-        Destroy::Explosion {
+        &Destroy::Explosion {
             size: 1.0,
             raise: Raise::Events
         }
@@ -1735,7 +1735,7 @@ fn a_chest_stays_when_its_items_have_nowhere_to_wait() {
         },
     ];
     for cause in causes {
-        assert!(!destroy(&mut h.state, 0, TARGET, cause));
+        assert!(!destroy(&mut h.state, 0, TARGET, &cause));
         assert_eq!(h.block(TARGET), Kind::Chest.default_state());
         assert_eq!(total(&h), before);
     }

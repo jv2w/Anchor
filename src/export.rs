@@ -19,7 +19,7 @@
 //! Everything is written into `<folder>.tmp`, flushed to disk and renamed to the folder at the
 //! end, so the folder appears whole or not at all; a failure removes the export's own folder.
 
-mod chunk;
+pub(crate) mod chunk;
 mod level_dat;
 mod leveldb;
 

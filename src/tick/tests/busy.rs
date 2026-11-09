@@ -290,7 +290,7 @@ fn busy() -> Listeners {
             || 0_u64,
             move |cx, result: Result<u64, crate::task::JobError>| {
                 if let (Ok(v), Some(p)) = (result, cx.player_mut(player)) {
-                    p.add_xp(u32::try_from(v % 7).unwrap());
+                    p.add_xp(u32::try_from(v % 7).unwrap()).unwrap();
                 }
             },
         )

@@ -834,7 +834,7 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     listeners.push(
         Priority::Normal,
         move |e: &mut EntityPreExplode, _: &mut Context<'_>| {
-            sink.push((e.radius(), e.fire_chance(), e.is_block_breaking()));
+            sink.push((e.size(), e.fire_chance(), e.is_block_breaking()));
             match mode(pre_mode) {
                 0 => e.cancel(),
                 1 => e.set_block_breaking(false),
@@ -846,12 +846,12 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     listeners.push(
         Priority::Normal,
         move |e: &mut EntityExplode, _: &mut Context<'_>| {
-            sink.push((e.blocks().len(), e.yield_percent()));
+            sink.push((e.blocks().len(), e.drop_chance()));
             if mode(boom_mode) == 0 {
                 e.cancel();
             } else {
                 e.set_blocks(vec![BlockPos::new(1, -50, 0)]);
-                e.set_yield_percent(0.0);
+                e.set_drop_chance(0.0);
             }
         },
     );
@@ -882,7 +882,11 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     assert!(got(&lists).is_empty());
     set(pre, 1);
     explode(&mut h);
-    assert_eq!(got(&lists), [(0, 25.0)], "no blocks found, yield 1 / size");
+    assert_eq!(
+        got(&lists),
+        [(0, 0.25)],
+        "no blocks found, drop chance 1 / size"
+    );
     assert_eq!(
         block(&h, BlockPos::new(1, -50, 0)),
         dirt,
@@ -900,18 +904,18 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
         "the listener's block"
     );
     assert_eq!(block(&h, BlockPos::new(-1, -50, 0)), dirt, "only that one");
-    assert_eq!(h.ground(), 0, "a yield of 0 drops nothing");
+    assert_eq!(h.ground(), 0, "a drop chance of 0 drops nothing");
     assert!(h.health(npc) < 20.0, "the blast hurts once it goes off");
 }
 
 /// An explosion breaks the TNT blocks it reaches into their own item, and primes none.
-/// A listener raising the yield to the whole makes every broken block drop.
+/// A listener raising the drop chance to 1 makes every broken block drop.
 #[test]
 fn an_explosion_breaks_tnt_blocks_into_their_item_and_primes_none() {
     let mut listeners = Listeners::default();
     listeners.push(
         Priority::Normal,
-        |e: &mut EntityExplode, _: &mut Context<'_>| e.set_yield_percent(100.0),
+        |e: &mut EntityExplode, _: &mut Context<'_>| e.set_drop_chance(1.0),
     );
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(20.0, 20.0));
@@ -962,7 +966,7 @@ fn scaled_tnt_explodes_at_half_its_scaled_height() {
     let sink = centers.sink();
     listeners.push(
         Priority::Normal,
-        move |e: &mut EntityExplode, _: &mut Context<'_>| sink.push(e.position()),
+        move |e: &mut EntityExplode, _: &mut Context<'_>| sink.push(e.center()),
     );
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(20.0, 20.0));
@@ -1538,7 +1542,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     let far = h.vulnerable_human(at(30.5, -60.0, 30.5));
     let center = Vec3::new(30.5, -59.0, 31.5);
     let mut cx = h.context();
-    cx.explode(WORLD, center, 2.0).unwrap();
+    cx.explode(Explode::new(WORLD, center, 2.0)).unwrap();
     assert!(h.health(far) < 20.0);
     assert!(got(&causes).is_empty(), "direct calls raise nothing");
     let before = h.health(far);

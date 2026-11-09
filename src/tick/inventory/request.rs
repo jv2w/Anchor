@@ -101,7 +101,7 @@ impl<'a> Exec<'a> {
         creative: bool,
         outside: &'a station::Outside,
     ) -> Self {
-        let window = inv.window.as_ref().filter(|w| w.id != 0);
+        let window = inv.window.as_ref().filter(|w| w.id.is_some());
         let mut halves: [&[Stack]; 2] = [&[], &[]];
         if let Some(w) = window {
             for (half, block) in halves.iter_mut().zip(w.kind.blocks()) {
@@ -855,7 +855,7 @@ fn is_creative(state: &State, session: SessionId) -> bool {
     state
         .players
         .get(&session)
-        .is_some_and(|p| !survival::has_finite_resources(survival::game_mode(state, p)))
+        .is_some_and(|p| !survival::has_finite_resources(p.game_mode()))
 }
 
 /// Answers a refused request: an error response, then the whole inventory again so the client
@@ -1011,8 +1011,7 @@ pub(super) fn notify(
         .inventory
         .window
         .as_ref()
-        .filter(|w| w.id != 0)
-        .map(|w| (w.id, w.kind))
+        .and_then(|w| Some((w.id?, w.kind)))
     else {
         return;
     };

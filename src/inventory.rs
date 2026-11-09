@@ -159,15 +159,6 @@ impl<'a> Inventory<'a> {
         stack.count().min(u8::try_from(room).unwrap_or(u8::MAX))
     }
 
-    /// Every slot holding `stack`'s item, as [`first`](Self::first) matches, with its stack.
-    #[doc(alias = "Inventory::all")]
-    #[doc(alias = "BaseInventory::all")]
-    pub fn all(&self, stack: &'a Stack) -> impl Iterator<Item = (usize, &'a Stack)> + 'a {
-        self.iter()
-            .enumerate()
-            .filter(move |(_, s)| matches(s, stack))
-    }
-
     /// Whether the inventory holds at least `stack.count()` of `stack`'s item (its damage, and
     /// its extra data when it has some), over all slots.
     #[doc(alias = "Inventory::contains")]
@@ -306,6 +297,15 @@ impl<'a> Inventory<'a> {
         self.halves[0].len() + self.halves[1].len()
     }
 
+    /// Every slot holding `stack`'s item, as [`first`](Self::first) matches, with its stack.
+    #[doc(alias = "Inventory::all")]
+    #[doc(alias = "BaseInventory::all")]
+    pub fn slots_holding(&self, stack: &'a Stack) -> impl Iterator<Item = (usize, &'a Stack)> + 'a {
+        self.iter()
+            .enumerate()
+            .filter(move |(_, s)| matches(s, stack))
+    }
+
     /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
     pub(crate) fn of_shulker_box(self) -> Self {
         Self {
@@ -435,7 +435,10 @@ mod tests {
         assert_eq!(inv.first(&named), Some(2));
         assert_eq!(inv.first_empty(), Some(1));
         let want = stack(ItemKind::Stick, 1);
-        assert_eq!(inv.all(&want).map(|(i, _)| i).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(
+            inv.slots_holding(&want).map(|(i, _)| i).collect::<Vec<_>>(),
+            [2, 3]
+        );
         // 4 onto the coal, 64 into the empty slot.
         assert_eq!(inv.addable_count(&stack(ItemKind::Coal, 64)), 64);
         assert!(inv.can_add(&stack(ItemKind::Coal, 64)));

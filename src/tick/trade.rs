@@ -117,7 +117,7 @@ impl Trades {
         for (s, t) in sessions {
             h.u64(s.get());
             h.u64(u64::from(t.villager.index()));
-            h.u64(u64::from(t.villager.generation()));
+            h.u64(t.villager.generation());
             h.u64(u64::from(t.window));
         }
         h.u64(u64::from(*next_net_id));
@@ -465,7 +465,7 @@ fn traded_with(
         // trade's draw its own: the offer's uses can be set back within a tick.
         let parts = [
             u64::from(villager.index()),
-            u64::from(villager.generation()),
+            villager.generation(),
             session.get(),
             u64::from(request.cast_unsigned()),
         ];

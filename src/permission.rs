@@ -95,11 +95,11 @@ builtin! {
 /// The most entries one list holds (operators, name bans, IP bans, whitelist).
 pub(crate) const MAX_ENTRIES: usize = 262_144;
 /// The longest name the operator list, the ban list and the whitelist hold, in bytes.
-pub(crate) const MAX_NAME: usize = 64;
+pub(crate) const MAX_NAME_BYTES: usize = 64;
 /// The longest ban reason, in bytes.
-pub(crate) const MAX_REASON: usize = 256;
+pub(crate) const MAX_REASON_BYTES: usize = 256;
 /// The longest ban source, in bytes.
-pub(crate) const MAX_SOURCE: usize = 64;
+pub(crate) const MAX_SOURCE_BYTES: usize = 64;
 /// The source of a ban nobody named.
 const UNKNOWN_SOURCE: &str = "(Unknown)";
 
@@ -355,18 +355,19 @@ impl std::error::Error for Error {}
 /// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
-/// [`MAX_SOURCE`].
+/// Fails unless a ban's `reason` is at most [`MAX_REASON_BYTES`] bytes and its `source` at most
+/// [`MAX_SOURCE_BYTES`].
 pub(crate) fn check_ban_fields(reason: &str, source: &str) -> Result<()> {
-    if reason.len() > MAX_REASON || source.len() > MAX_SOURCE {
+    if reason.len() > MAX_REASON_BYTES || source.len() > MAX_SOURCE_BYTES {
         return Err(Error::TooLong);
     }
     Ok(())
 }
 
-/// Fails unless `name` can be on a list: 1 to [`MAX_NAME`] bytes without control characters.
+/// Fails unless `name` can be on a list: 1 to [`MAX_NAME_BYTES`] bytes without control
+/// characters.
 pub(crate) fn check_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
+    if name.is_empty() || name.len() > MAX_NAME_BYTES || name.chars().any(char::is_control) {
         return Err(Error::InvalidName);
     }
     Ok(())
@@ -401,8 +402,10 @@ mod tests {
         let source = include_str!("permission.rs");
         let entries = format!("{},{:03}", MAX_ENTRIES / 1000, MAX_ENTRIES % 1000);
         for text in [
-            format!("longer than {MAX_NAME} bytes or holds"),
-            format!("longer than {MAX_REASON} bytes or its source longer than {MAX_SOURCE}."),
+            format!("longer than {MAX_NAME_BYTES} bytes or holds"),
+            format!(
+                "longer than {MAX_REASON_BYTES} bytes or its source longer than {MAX_SOURCE_BYTES}."
+            ),
             format!("The list holds {entries} entries."),
         ] {
             assert!(source.contains(&text), "{text}");
@@ -447,7 +450,7 @@ mod tests {
         );
         assert_eq!(BanEntry::new("").checked(0), Err(Error::InvalidName));
         assert_eq!(BanEntry::new("a\nb").checked(0), Err(Error::InvalidName));
-        let long = "x".repeat(MAX_REASON + 1);
+        let long = "x".repeat(MAX_REASON_BYTES + 1);
         assert_eq!(
             BanEntry::new("a").with_reason(&long).checked(0),
             Err(Error::TooLong)

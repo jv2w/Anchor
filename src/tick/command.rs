@@ -28,8 +28,8 @@ use super::{Context, Phase, PlayerKey, State, chat, dispatch, spawn};
 use crate::ServerBuilder;
 use crate::command::parse::{self, Coord, Names, Raw, Target};
 use crate::command::{
-    self, Args, Command, Error, Kind, Line, MAX_ENUM_VALUES, MAX_NAME, MAX_OVERLOADS, MAX_PARAMS,
-    MAX_PERMISSIONS, Output, Sender, Value, register,
+    self, Args, Command, Error, Kind, Line, MAX_ENUM_VALUES, MAX_NAME_BYTES, MAX_OVERLOADS,
+    MAX_PARAMS, MAX_PERMISSIONS, Output, Sender, Value, register,
 };
 use crate::config::{Difficulty, GameMode};
 use crate::console::text;
@@ -366,7 +366,7 @@ impl Commands {
     }
 
     /// Takes the operator list, the bans and the whitelist the server file held, and whether the
-    /// whitelist is on (`white-list`). `Server::run` calls it once, before the tick starts.
+    /// whitelist is on (`whitelist`). `Server::run` calls it once, before the tick starts.
     pub(crate) fn start(&mut self, access: AccessData, whitelist_enabled: bool) {
         self.access = Access::new(access, whitelist_enabled);
     }
@@ -493,8 +493,8 @@ pub(crate) enum Refusal {
 impl Refusal {
     /// The last packet the refused session gets: [`queue::server_full`] for a full server,
     /// otherwise a `Disconnect` with the reason `NotAllowed`. A whitelist refusal carries no
-    /// message, so the client shows its own text for that reason in the player's language: the
-    /// client shows a message as it is and translates no key in it.
+    /// message, so the client shows its own text for that reason; whether the client translates
+    /// a key sent as the message is unconfirmed (`network.md`).
     pub(crate) fn packet(&self) -> Packet {
         let message = match self {
             Self::Full => return queue::server_full(),
@@ -714,7 +714,7 @@ impl Context<'_> {
             .is_some_and(|g| g.contains_key(permission.name()))
     }
 
-    /// Whether the whitelist is on (`white-list`).
+    /// Whether the whitelist is on (`whitelist`).
     #[doc(alias = "Server::hasWhitelist")]
     pub fn is_whitelist_enabled(&self) -> bool {
         self.state.commands.access.is_whitelist_enabled()
@@ -775,7 +775,8 @@ impl Context<'_> {
         self.state.commands.access.whitelisted()
     }
 
-    /// Puts `name` (any ASCII case) on the whitelist, saved at the next tick boundary.
+    /// Puts `name` (any ASCII case) on the whitelist, saved at the next tick boundary; false if
+    /// it was on it already.
     ///
     /// # Errors
     ///
@@ -783,11 +784,10 @@ impl Context<'_> {
     /// control characters.
     /// [`permission::Error::Full`] for a list that holds 262,144 entries already.
     #[doc(alias = "Server::addWhitelist")]
-    pub fn add_to_whitelist(&mut self, name: &str) -> permission::Result<()> {
-        if self.state.commands.access.whitelist_add(name)? {
-            self.state.saving.requested = true;
-        }
-        Ok(())
+    pub fn add_to_whitelist(&mut self, name: &str) -> permission::Result<bool> {
+        let added = self.state.commands.access.whitelist_add(name)?;
+        self.state.saving.requested |= added;
+        Ok(added)
     }
 
     /// Adds `entry` to the name bans, or to the IP bans for [`BanEntry::ip`], replacing a ban of
@@ -907,9 +907,9 @@ impl Context<'_> {
         execute(self.state, sender, line)
     }
 
-    /// Makes `name` (any ASCII case) an operator, saved at the next tick boundary; an online
-    /// player of that name gets its new command list and operator abilities at the end of the
-    /// tick.
+    /// Makes `name` (any ASCII case) an operator, saved at the next tick boundary; false if it
+    /// was one already. An online player of that name gets its new command list and operator
+    /// abilities at the end of the tick.
     ///
     /// # Errors
     ///
@@ -917,12 +917,13 @@ impl Context<'_> {
     /// control characters.
     /// [`permission::Error::Full`] for a list that holds 262,144 entries already.
     #[doc(alias = "Server::addOp")]
-    pub fn op(&mut self, name: &str) -> permission::Result<()> {
-        if self.state.commands.access.op(name)? {
-            self.state.saving.requested = true;
-            self.operator_changed(name, true);
+    pub fn op(&mut self, name: &str) -> permission::Result<bool> {
+        if !self.state.commands.access.op(name)? {
+            return Ok(false);
         }
-        Ok(())
+        self.state.saving.requested = true;
+        self.operator_changed(name, true);
+        Ok(true)
     }
 
     /// Takes `name` off the whitelist; false if it was not on it. A player who is online stays
@@ -1105,7 +1106,7 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Turns the whitelist on or off until the server stops (`white-list` decides at start:
+    /// Turns the whitelist on or off until the server stops (`whitelist` decides at start:
     /// Anchor never writes the settings file). Players already online stay; one whose saved data
     /// is still loading is refused when its data arrives, if the whitelist then keeps it out.
     pub fn set_whitelist_enabled(&mut self, enabled: bool) {
@@ -1216,7 +1217,7 @@ impl Context<'_> {
 fn check(command: &Command) -> register::Result<()> {
     for name in std::iter::once(&command.name).chain(&command.aliases) {
         if name.is_empty()
-            || name.len() > MAX_NAME
+            || name.len() > MAX_NAME_BYTES
             || name
                 .chars()
                 .any(|c| c.is_whitespace() || c.is_control() || c == '/')
@@ -1285,7 +1286,7 @@ fn check(command: &Command) -> register::Result<()> {
             }
             if let Kind::Suffixed { suffix } = &param.kind
                 && (suffix.is_empty()
-                    || suffix.len() > MAX_NAME
+                    || suffix.len() > MAX_NAME_BYTES
                     || !suffix.chars().all(|c| c.is_ascii_alphabetic()))
             {
                 return invalid("a suffix is not one to 64 ASCII letters");

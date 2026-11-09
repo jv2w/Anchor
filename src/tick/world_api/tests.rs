@@ -249,6 +249,38 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
     );
 }
 
+/// Runs a tick and collects the clock states (time, paused) of each `SyncWorldClocks` `rx` got.
+fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<(i32, bool)>> {
+    tick(state, &mut Vec::new(), &mut Output::default());
+    received(rx)
+        .0
+        .into_iter()
+        .filter_map(|p| match p {
+            P::SyncWorldClocks(c) => {
+                Some(c.sync_states.iter().map(|s| (s.time, s.paused)).collect())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Each change of the clock is told with one `SyncWorldClocks` state.
+#[test]
+fn the_players_are_told_each_change_of_the_clock() {
+    let (mut state, [mut rx1, _rx2]) = state();
+    // Paused, so the ticks between leave the clock where it is.
+    context(&mut state).stop_time(WORLD).unwrap();
+    clock_syncs(&mut state, &mut rx1);
+    context(&mut state).set_time(WORLD, 6000).unwrap();
+    assert_eq!(clock_syncs(&mut state, &mut rx1), [[(6000, true)]]);
+    context(&mut state).set_time(WORLD, 7000).unwrap();
+    context(&mut state).set_time(WORLD, 6000).unwrap();
+    assert_eq!(
+        clock_syncs(&mut state, &mut rx1),
+        [[(7000, true)], [(6000, true)]]
+    );
+}
+
 // api: World::getChunkPlayers, World::getViewersForPosition
 #[test]
 fn chunk_viewers_are_the_players_sent_the_chunk() {
@@ -361,23 +393,24 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     let before = state.worlds[0].block(below);
     let mut cx = context(&mut state);
     assert_eq!(
-        cx.explode(world::Id::of(1), center, 4.0),
+        cx.explode(action::Explode::new(world::Id::of(1), center, 4.0)),
         Err(world::Error::WorldNotLoaded)
     );
     for size in [0.0, f64::NAN] {
         assert_eq!(
-            cx.explode(WORLD, center, size),
+            cx.explode(action::Explode::new(WORLD, center, size)),
             Err(world::Error::OutOfRange)
         );
     }
     assert_eq!(
-        cx.explode_with_fire(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0),
+        cx.explode(action::Explode::new(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0).fire()),
         Err(world::Error::OutOfRange)
     );
-    cx.explode(WORLD, center, 4.0).unwrap();
+    cx.explode(action::Explode::new(WORLD, center, 4.0))
+        .unwrap();
     assert_ne!(state.worlds[0].block(below), before, "the block is gone");
     context(&mut state)
-        .explode_with_fire(WORLD, center, 3.0)
+        .explode(action::Explode::new(WORLD, center, 3.0).fire())
         .unwrap();
 }
 

@@ -23,7 +23,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 - `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 - `Invalid`: a value of the wrong type or form.
 - `Range`: a whole number outside its range, with the key, the value, the minimum, and the maximum.
-- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` that the codec accepts but that is below one player list entry (the minimum in the `max-batch-bytes` row below) is `Invalid`.
+- `Batch`: a `compression-threshold-bytes`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` that the codec accepts but that is below one player list entry (the minimum in the `max-batch-bytes` row below) is `Invalid`.
 - `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
 - A `level-name` that cannot be a world file name is `Invalid`, naming `general.level-name`.
 - An IPv6 `public-ip` with `enable-ipv6 = false` is `Invalid`, naming `general.public-ip`.
@@ -46,18 +46,18 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `public-ip` | string | empty or an IP address; IPv6 only with `enable-ipv6` | Address NetherNet players use to reach the server, advertised alone; empty advertises the address each player reached the signaling port on and the address the player typed, which reaches a server behind a NAT through its port forward (`network.md`) |
 | `max-players` | integer | 1 to 10000 | Most players online at once; sizes the player and session tables |
 | `xbox-auth` | bool | | Whether players must sign in to Xbox Live; `false` lets anyone join under any name |
-| `white-list` | bool | | Whether only listed players can join; the `whitelist` command manages the list |
+| `whitelist` | bool | | Whether only listed players can join; the `whitelist` command manages the list |
 | `gamemode` | string | `survival`, `creative`, `adventure`, `spectator` | Game mode of new players. The setting takes the full names only; the `gamemode` command also takes letters and numbers (`s`, `0`) |
 | `force-gamemode` | bool | | Whether players get the default game mode on every join |
 | `difficulty` | string | `peaceful`, `easy`, `normal`, `hard` | Difficulty |
 | `hardcore` | bool | `true` only with `difficulty = "hard"` | Hardcore |
 | `pvp` | bool | | Whether players can hurt each other |
-| `food` | bool | | Food |
+| `food` | bool | | Food; `false` freezes food, saturation, and exhaustion, and health heals as with a full bar, every 80 ticks |
 | `xp` | bool | | Gaining XP points and levels. `false` also means no XP orbs |
 | `xp-orbs` | bool | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (a loading chunk's saved orbs stay as saved and are written back), and refuses throwing bottles; no XP is given directly in their place. Points and levels follow `xp` only |
 | `fall-damage` | bool | | Fall damage |
 | `drowning` | bool | | Air supply under water, drowning damage, and suffocation damage |
-| `armor` | bool | | Armor protection, armor wear, and thorns; `false` removes all three |
+| `armor` | bool | | Armor protection (its enchantments' too: against damage, burning, and explosion knockback), armor wear, and thorns; `false` removes all three |
 | `durability` | bool | | Tools, weapons, and armor wearing out with use. With `armor = true`, `false` keeps armor protecting without wearing |
 | `daylight-cycle` | bool | | The time of day moving on; `false` also stops the client's clock (game rule `doDayLightCycle`) |
 | `item-despawn-ticks` | integer | 1 to 72000 | Ticks a dropped item stays on the ground |
@@ -85,13 +85,13 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | Key | Type | Range and form | Meaning |
 |---|---|---|---|
 | `compression` | string | `snappy`, `zlib` | Network compression: Snappy saves CPU, zlib saves bandwidth |
-| `compression-threshold` | integer | 1 to 65535 | Batches shorter than this many bytes are sent uncompressed. 0 is rejected because implementations disagree on what it means |
+| `compression-threshold-bytes` | integer | 1 to 65535 | Batches shorter than this many bytes are sent uncompressed. 0 is rejected because implementations disagree on what it means |
 | `compression-level` | integer | 1 to 9 | zlib level, 1 (fastest) to 9 (smallest); checked even when `compression = "snappy"` |
 | `max-batch-bytes` | integer | 4210786 to 67108864 | Largest decompressed batch received from a player or sent to one, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
 | `enable-encryption` | bool | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
 | `transport` | string | `all`, `nethernet`, `raknet` | Transports that accept players. `nethernet`: a RakNet client gets no reply to its connection request, and the UDP port still answers server list pings. `raknet`: no NetherNet code runs (no TCP signaling listener, no `data/identity.key`), every UDP datagram goes to RakNet, and the NetherNet keys (`public-ip`, `nethernet-tls-cert`, `nethernet-tls-key`) are checked but unused |
 | `raknet-cookies` | bool | | Whether a RakNet client must send back a connection cookie before it gets a connection; what the cookie is, what each value does, and the reason for the default are in `network.md` |
-| `max-mtu-size` | integer | 576 to 1492 | Largest RakNet packet in bytes; tunnels and VPNs need a lower value. go-raknet's dialer probes 1492, 1200, and 576 |
+| `max-mtu-bytes` | integer | 576 to 1492 | Largest RakNet packet in bytes; tunnels and VPNs need a lower value. go-raknet's dialer probes 1492, 1200, and 576 |
 | `nethernet-tls-cert` | string | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | empty or a path | PEM private key for HTTPS signaling |
 | `network-threads` | string or integer | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(2, ⌊L/4⌋), L being the logical CPU count |
@@ -102,7 +102,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `slow-empty-worlds` | bool | | Whether a world without players runs its world rules only on one tick in every 100: world `w` on the ticks `t` where (t + w) % 100 = 0, so empty worlds do not all run on one tick |
 | `lighting` | string | `dynamic`, `on-load`, `fixed` | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level` |
 | `fixed-light-level` | integer | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
-| `item-pickup-interval` | integer | 1 to 20 | Ticks between checks for items a player can pick up |
+| `item-pickup-interval-ticks` | integer | 1 to 20 | Ticks between checks for items a player can pick up |
 | `hook-movement-packets` | bool | | Whether movement packets the server sends pass the send hooks |
 | `hook-player-input` | bool | | Whether `PlayerAuthInput` packets pass the receive hooks |
 | `save-interval-minutes` | integer | 1 to 1440 | Minutes between whole-state saves |

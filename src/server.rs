@@ -422,10 +422,9 @@ impl Server {
             let mut opened =
                 save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
             setup.data.load(&mut opened.thread)?;
-            setup.commands.start(
-                std::mem::take(&mut opened.access),
-                config.general.white_list,
-            );
+            setup
+                .commands
+                .start(std::mem::take(&mut opened.access), config.general.whitelist);
             opened
                 .thread
                 .set_lighting(config.developer.lighting.is_calculated());

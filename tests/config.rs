@@ -36,7 +36,7 @@ server-port = 19140
 public-ip = "203.0.113.7"
 max-players = 100
 xbox-auth = false
-white-list = true
+whitelist = true
 gamemode = "creative"
 force-gamemode = true
 difficulty = "hard"
@@ -72,13 +72,13 @@ log-level = "debug"
 
 [developer]
 compression = "zlib"
-compression-threshold = 512
+compression-threshold-bytes = 512
 compression-level = 9
 max-batch-bytes = 8388608
 enable-encryption = false
 transport = "nethernet"
 raknet-cookies = true
-max-mtu-size = 1200
+max-mtu-bytes = 1200
 nethernet-tls-cert = "cert.pem"
 nethernet-tls-key = "key.pem"
 network-threads = 2
@@ -89,7 +89,7 @@ tick-radius = 5
 slow-empty-worlds = true
 lighting = "on-load"
 fixed-light-level = 7
-item-pickup-interval = 4
+item-pickup-interval-ticks = 4
 hook-movement-packets = false
 hook-player-input = false
 save-interval-minutes = 5
@@ -126,17 +126,17 @@ const RANGED_KEYS: [&str; 23] = [
     "general.level-name",
     "general.view-distance",
     "general.max-backups",
-    "developer.compression-threshold",
+    "developer.compression-threshold-bytes",
     "developer.compression-level",
     "developer.max-batch-bytes",
-    "developer.max-mtu-size",
+    "developer.max-mtu-bytes",
     "developer.network-threads",
     "developer.cpu-threads",
     "developer.chunks-per-tick",
     "developer.spawn-radius",
     "developer.tick-radius",
     "developer.fixed-light-level",
-    "developer.item-pickup-interval",
+    "developer.item-pickup-interval-ticks",
     "developer.save-interval-minutes",
     "worlds.lobby.view-distance",
     "worlds.lobby.chunks-per-tick",
@@ -232,7 +232,7 @@ fn custom() -> Config {
     g.public_ip = Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
     g.max_players = 100;
     g.xbox_auth = false;
-    g.white_list = true;
+    g.whitelist = true;
     g.gamemode = GameMode::Creative;
     g.force_gamemode = true;
     g.difficulty = Difficulty::Hard;
@@ -267,13 +267,13 @@ fn custom() -> Config {
     g.log_level = LogLevel::Debug;
     let d = &mut config.developer;
     d.compression = Compression::Zlib;
-    d.compression_threshold = 512;
+    d.compression_threshold_bytes = 512;
     d.compression_level = 9;
     d.max_batch_bytes = 8 * MIB;
     d.enable_encryption = false;
     d.transport = Transports::Nethernet;
     d.raknet_cookies = true;
-    d.max_mtu_size = 1200;
+    d.max_mtu_bytes = 1200;
     d.nethernet_tls_cert = Some(PathBuf::from("cert.pem"));
     d.nethernet_tls_key = Some(PathBuf::from("key.pem"));
     d.network_threads = Threads::Count(NonZeroU16::new(2).expect("non-zero"));
@@ -284,7 +284,7 @@ fn custom() -> Config {
     d.slow_empty_worlds = true;
     d.lighting = Lighting::OnLoad;
     d.fixed_light_level = 7;
-    d.item_pickup_interval = 4;
+    d.item_pickup_interval_ticks = 4;
     d.hook_movement_packets = false;
     d.hook_player_input = false;
     d.save_interval_minutes = 5;
@@ -458,7 +458,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""x""#, r#"" 1.2.3.4""#]),
         ),
         ("general.xbox-auth", bools(), Vec::new()),
-        ("general.white-list", bools(), Vec::new()),
+        ("general.whitelist", bools(), Vec::new()),
         (
             "general.gamemode",
             s(&[
@@ -553,7 +553,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""snappy""#, r#""zlib""#]),
             s(&[r#""none""#, r#""Zlib""#]),
         ),
-        ("developer.compression-threshold", Vec::new(), s(&["-1"])),
+        (
+            "developer.compression-threshold-bytes",
+            Vec::new(),
+            s(&["-1"]),
+        ),
         ("developer.compression-level", Vec::new(), s(&["256"])),
         (
             "developer.max-batch-bytes",
@@ -786,7 +790,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
     assert_eq!(d.transport, Transports::All);
     assert_eq!(d.lighting, Lighting::Dynamic);
     assert_eq!(d.fixed_light_level, 15);
-    assert_eq!(d.item_pickup_interval, 1);
+    assert_eq!(d.item_pickup_interval_ticks, 1);
     assert_eq!(d.integrity_check, IntegrityCheck::Always);
     assert!(config.worlds.is_empty());
 }

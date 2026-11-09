@@ -25,14 +25,14 @@ const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// changed lists).
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
-        0x7cfa_45d3_fff2_dacc,
-        0x3940_4dc6_a003_819d,
+        0xae44_dbc7_e27b_bb6c,
+        0xfccf_c065_cadd_6d5d,
         0xc4d0_b7b4_ec98_80fa,
         0xb713_398d_58c8_d5e5,
     ],
     [
-        0x052c_be7f_487e_e28f,
-        0xce78_5002_959b_6c8a,
+        0xf1d7_4c60_3211_ffaf,
+        0xbb3a_b311_ebba_c5ca,
         0xc4d0_b7b4_ec98_80fa,
         0x8529_4a2b_6280_7bf4,
     ],
@@ -241,15 +241,20 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
         start: 1,
         chunks: vec![(0, DISK, terrain)],
         extras: vec![
-            (0, DISK, ChunkKind::BlockEntities, block_entities),
-            (0, DISK, ChunkKind::Entities, entities),
+            (0, DISK, ChunkKind::BlockEntities, Arc::new(block_entities)),
+            (0, DISK, ChunkKind::Entities, Arc::new(entities)),
             (
                 0,
                 GENERATED,
                 ChunkKind::BlockEntities,
-                generated_block_entities,
+                Arc::new(generated_block_entities),
             ),
-            (0, GENERATED, ChunkKind::Entities, generated_entities),
+            (
+                0,
+                GENERATED,
+                ChunkKind::Entities,
+                Arc::new(generated_entities),
+            ),
         ],
         ..Snapshot::default()
     }
@@ -423,7 +428,7 @@ fn a_block_entity_list_of_too_many_raw_entries_loads_damaged() {
     let list = vec![raw; crate::storage::codec::MAX_RAW_BLOCK_ENTITIES + 1];
     let snapshot = Snapshot {
         start: 1,
-        extras: vec![(0, GENERATED, ChunkKind::BlockEntities, list)],
+        extras: vec![(0, GENERATED, ChunkKind::BlockEntities, Arc::new(list))],
         ..Snapshot::default()
     };
     let registry = Arc::clone(state.custom());

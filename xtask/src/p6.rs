@@ -800,7 +800,7 @@ fn default_settings() -> [(&'static str, String); 5] {
         ("view-distance", config.general.view_distance.to_string()),
         (
             "compression-threshold",
-            config.developer.compression_threshold.to_string(),
+            config.developer.compression_threshold_bytes.to_string(),
         ),
         ("gamemode", gamemode.to_owned()),
         ("difficulty", difficulty.to_owned()),

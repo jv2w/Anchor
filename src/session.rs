@@ -661,7 +661,7 @@ fn raknet_settings(
     cookie_key: Option<CookieKey>,
 ) -> raknet::Settings {
     raknet::Settings {
-        max_mtu: config.developer.max_mtu_size,
+        max_mtu: config.developer.max_mtu_bytes,
         // An encrypted RakNet message adds the checksum to the batch.
         max_message_bytes: max_message_bytes(&batch)
             .saturating_add(crypto::encryption::CHECKSUM_BYTES),

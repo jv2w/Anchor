@@ -690,7 +690,7 @@ impl Player {
     ///         .instance()
     ///         .with_duration_ticks(200)
     ///         .with_amplifier(1)
-    ///         .with_visible(false);
+    ///         .without_particles();
     ///     player.add_effect(speed)
     /// }
     /// ```
@@ -737,14 +737,17 @@ impl Player {
     }
 
     /// Adds xp points, raising the level as they fill it, without a sound; the points ever
-    /// collected stay within 2^31 - 1. Nothing with `xp = false`.
+    /// collected stay within 2^31 - 1. Fails with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
     #[doc(alias = "ExperienceManager::addXp")]
-    pub fn add_xp(&mut self, points: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
+    pub fn add_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
         food::add_xp(self, points);
         self.survival.touch(0);
+        Ok(())
     }
 
     /// Adds xp levels, keeping the progress. Fails if the level would pass 24,791, and
@@ -1058,8 +1061,8 @@ impl Player {
         Ok(())
     }
 
-    /// Turns food on or off for the player: off, its food and saturation stay as they are. Not
-    /// saved.
+    /// Turns food on or off for the player: off, its food and saturation stay as they are, and
+    /// its health heals as with a full bar, every 80 ticks, for no exhaustion. Not saved.
     #[doc(alias = "HungerManager::setEnabled")]
     pub fn set_food_enabled(&mut self, enabled: bool) {
         self.survival.custom.food = enabled;
@@ -1464,29 +1467,35 @@ impl Player {
         Ok(())
     }
 
-    /// Takes xp points, lowering the level; not below 0. Nothing with `xp = false`.
+    /// Takes xp points, lowering the level; not below 0. Fails with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXp")]
-    pub fn subtract_xp(&mut self, points: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
+    pub fn subtract_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
         let s = &mut self.survival;
         let total = food::current_xp(s).saturating_sub(u64::from(points));
         food::set_xp(s, total);
         s.touch(0);
         self.data_dirty = true;
+        Ok(())
     }
 
-    /// Takes xp levels, keeping the progress; not below 0. Nothing with `xp = false`.
+    /// Takes xp levels, keeping the progress; not below 0. Fails with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXpLevels")]
-    pub fn subtract_xp_levels(&mut self, levels: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
+    pub fn subtract_xp_levels(&mut self, levels: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
         let s = &mut self.survival;
         s.xp_level = s.xp_level.saturating_sub(levels);
         s.touch(LEVEL);
         self.data_dirty = true;
+        Ok(())
     }
 }
 
@@ -1722,7 +1731,7 @@ fn point(at: Option<(&str, BlockPos)>) -> Result<Option<Point>> {
     let Some((world, pos)) = at else {
         return Ok(None);
     };
-    if world.len() > crate::storage::MAX_FILE_NAME {
+    if world.len() > crate::storage::MAX_FILE_NAME_BYTES {
         return Err(Error::TooLong);
     }
     Ok(Some(Point {
@@ -2087,17 +2096,17 @@ mod tests {
     fn xp_levels_and_points_are_set_and_taken_within_their_bounds() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
-        p.add_xp(1395);
+        p.add_xp(1395).unwrap();
         assert_eq!((p.xp_level(), p.current_total_xp()), (30, 1395));
         assert_eq!(p.lifetime_total_xp(), 1395);
-        p.subtract_xp(1395 - 352);
+        p.subtract_xp(1395 - 352).unwrap();
         assert_eq!((p.xp_level(), p.xp_progress()), (16, 0.0));
         assert_eq!(p.lifetime_total_xp(), 1395, "the lifetime total stays");
         assert_eq!(p.set_xp_level(24_792), Err(Error::OutOfRange));
         assert_eq!(p.add_xp_levels(u32::MAX), Err(Error::OutOfRange));
         p.set_xp_level(5).unwrap();
         p.add_xp_levels(2).unwrap();
-        p.subtract_xp_levels(10);
+        p.subtract_xp_levels(10).unwrap();
         assert_eq!(p.xp_level(), 0);
         assert_eq!(p.set_xp_progress(1.0), Err(Error::OutOfRange));
         p.set_xp_progress(0.5).unwrap();
@@ -2113,7 +2122,7 @@ mod tests {
             "a refused call changes nothing"
         );
         p.set_xp_level(24_791).unwrap();
-        p.add_xp(1);
+        p.add_xp(1).unwrap();
         assert_eq!(
             p.xp_level(),
             24_791,
@@ -2188,7 +2197,7 @@ mod tests {
             .instance()
             .with_duration_ticks(12_000)
             .with_amplifier(255)
-            .with_visible(false);
+            .without_particles();
         assert!(p.add_effect(hidden));
         assert_eq!(p.effect(effect::Type::Resistance), Some(hidden));
         run(&mut state, Vec::new());
@@ -2210,10 +2219,7 @@ mod tests {
         // A hidden effect is not one of the visible effects: no change to send.
         assert_eq!(effects_data(last_data(&got)), None);
         let p = player_mut(&mut state, 1);
-        let faint = effect::Type::Speed
-            .instance()
-            .with_ambient(true)
-            .with_infinite(true);
+        let faint = effect::Type::Speed.instance().ambient().infinite();
         assert!(p.add_effect(faint));
         run(&mut state, Vec::new());
         let got = received(&mut rx1).0;
@@ -2359,7 +2365,7 @@ mod tests {
         assert_eq!(p.death_position(), None);
         assert_eq!(
             p.set_spawn(Some((
-                &"w".repeat(crate::storage::MAX_FILE_NAME + 1),
+                &"w".repeat(crate::storage::MAX_FILE_NAME_BYTES + 1),
                 BlockPos::new(0, 0, 0)
             ))),
             Err(Error::TooLong)
@@ -2527,7 +2533,7 @@ mod tests {
     fn xp_remainder_lifetime_and_orb_settings() {
         let (mut state, _rx) = two();
         let p = player_mut(&mut state, 1);
-        p.add_xp(10);
+        p.add_xp(10).unwrap();
         // Level 1 needs 7 points: 3 into it.
         assert_eq!((p.xp_level(), p.remainder_xp()), (1, 3));
         assert_eq!(
@@ -2714,7 +2720,7 @@ mod tests {
         let p = player_mut(&mut state, 1);
         assert_eq!(
             p.set_death_position(Some((
-                &"w".repeat(crate::storage::MAX_FILE_NAME + 1),
+                &"w".repeat(crate::storage::MAX_FILE_NAME_BYTES + 1),
                 BlockPos::new(0, 0, 0)
             ))),
             Err(Error::TooLong)

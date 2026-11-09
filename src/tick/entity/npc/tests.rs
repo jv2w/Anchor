@@ -56,6 +56,7 @@ fn offers() -> Offers {
         )]),
         &crate::custom::Registry::default(),
     )
+    .unwrap()
 }
 
 fn villager(h: &mut Harness, pos: Vec3) -> Id {

@@ -58,7 +58,7 @@ pub(crate) const ITEM_ENUM: &str = "Item";
 /// The most values one enum parameter offers.
 pub(crate) const MAX_ENUM_VALUES: usize = 4096;
 /// The longest command name or alias, in bytes.
-pub(crate) const MAX_NAME: usize = 64;
+pub(crate) const MAX_NAME_BYTES: usize = 64;
 /// The most overloads one command has.
 pub(crate) const MAX_OVERLOADS: usize = 64;
 /// The most parameters one overload has.
@@ -878,8 +878,8 @@ mod tests {
             format!("longer than a client takes ({description})"),
             format!("A command names at most {MAX_PERMISSIONS}."),
             format!("names more than {MAX_PERMISSIONS} permissions."),
-            format!("A suffix other than 1 to {MAX_NAME} ASCII letters"),
-            format!("too long ({MAX_NAME} bytes)"),
+            format!("A suffix other than 1 to {MAX_NAME_BYTES} ASCII letters"),
+            format!("too long ({MAX_NAME_BYTES} bytes)"),
             format!("longer than {MAX_LINE_CHARS} characters or {line_bytes}"),
             format!("with up to {SYNTAX_CONTEXT} characters of the line"),
             format!("Up to {SYNTAX_CONTEXT} characters before the word"),

@@ -222,6 +222,22 @@ impl Mut<'_> {
         }
     }
 
+    /// Sets whether an end crystal shows its bedrock base.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
+    pub fn set_base_visible(&mut self, visible: bool) -> Result<()> {
+        match &mut self.entity_mut().kind {
+            Kind::EndCrystal(c) => {
+                c.show_base = visible;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
     /// Sets the block an end crystal's beam points at, or none.
     ///
     /// # Errors
@@ -384,15 +400,21 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets the ticks it burns, at most 32,767; 0 puts its fire out.
+    /// Sets the ticks it burns; 0 puts its fire out. Fails above 32,767.
     /// A fire-proof entity burns none. A direct call raises no event.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for ticks above 32,767.
     #[doc(alias = "Entity::setFireTicks")]
     #[doc(alias = "Entity::extinguish")]
-    pub fn set_fire_ticks(&mut self, ticks: u16) {
+    pub fn set_fire_ticks(&mut self, ticks: u32) -> Result<()> {
+        let ticks = i16::try_from(ticks).ok().ok_or(Error::OutOfRange)?;
         let e = self.entity_mut();
         if !e.kind.is_fire_proof() {
-            e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
+            e.fire_ticks = ticks;
         }
+        Ok(())
     }
 
     /// Sets a firework rocket's explosions (see [`Entity::firework_explosions`]).
@@ -502,13 +524,13 @@ impl Mut<'_> {
     ///
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
-    pub fn set_linger(&mut self, linger: bool) -> Result<()> {
+    pub fn set_lingering(&mut self, lingering: bool) -> Result<()> {
         match &mut self.entity_mut().kind {
             Kind::Projectile(Projectile {
-                shot: Shot::Potion { linger: l, .. },
+                shot: Shot::Potion { linger, .. },
                 ..
             }) => {
-                *l = linger;
+                *linger = lingering;
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -580,11 +602,12 @@ impl Mut<'_> {
         self.shown_mut().name_tag_visible = visible;
     }
 
-    /// Sets it on fire for `seconds`.
+    /// Sets it on fire for `seconds`, at most 32,767 ticks.
     /// Nothing changes if it burns longer already or is fire-proof.
     #[doc(alias = "Entity::setOnFire")]
     #[doc(alias = "Living::setOnFire")]
-    pub fn set_on_fire(&mut self, seconds: u16) {
+    pub fn set_on_fire(&mut self, seconds: u32) {
+        // A longer time burns the longest a burn lasts, as a player's does.
         let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
         self.entity_mut().set_on_fire(seconds);
     }
@@ -751,22 +774,6 @@ impl Mut<'_> {
         e.scale = scale;
         e.forced = true;
         Ok(())
-    }
-
-    /// Sets whether an end crystal shows its bedrock base.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
-    pub fn set_show_base(&mut self, show: bool) -> Result<()> {
-        match &mut self.entity_mut().kind {
-            Kind::EndCrystal(c) => {
-                c.show_base = show;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
     }
 
     /// Sets how many items a dropped item holds, 1 to the item's stack size.
@@ -1174,8 +1181,8 @@ impl Entity {
 
     /// Ticks it keeps burning.
     #[doc(alias = "Entity::getFireTicks")]
-    pub fn fire_ticks(&self) -> u16 {
-        self.fire_ticks.cast_unsigned()
+    pub fn fire_ticks(&self) -> u32 {
+        u32::from(self.fire_ticks.cast_unsigned())
     }
 
     /// A firework rocket's explosions, as a firework item's `Explosions` holds them.
@@ -1232,6 +1239,12 @@ impl Entity {
         self.kind.is_baby()
     }
 
+    /// Whether an end crystal shows its bedrock base (a placed one does not).
+    #[doc(alias = "entity\\object\\EndCrystal::showBase")]
+    pub fn is_base_visible(&self) -> bool {
+        matches!(&self.kind, Kind::EndCrystal(c) if c.show_base)
+    }
+
     /// Whether it is a critical arrow (more damage, a trail).
     #[doc(alias = "entity\\projectile\\Arrow::isCritical")]
     pub fn is_critical(&self) -> bool {
@@ -1255,6 +1268,18 @@ impl Entity {
     /// every other kind, whatever it takes ([`Mut::attack`] says which).
     pub fn is_invulnerable(&self) -> bool {
         matches!(&self.kind, Kind::Npc(c) if c.invulnerable)
+    }
+
+    /// Whether a thrown potion leaves a cloud.
+    #[doc(alias = "entity\\projectile\\SplashPotion::willLinger")]
+    pub fn is_lingering(&self) -> bool {
+        matches!(
+            &self.kind,
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { linger: true, .. },
+                ..
+            })
+        )
     }
 
     /// Whether the name tag always shows.
@@ -1479,12 +1504,6 @@ impl Entity {
         self.scale
     }
 
-    /// Whether an end crystal shows its bedrock base (a placed one does not).
-    #[doc(alias = "entity\\object\\EndCrystal::showBase")]
-    pub fn shows_base(&self) -> bool {
-        matches!(&self.kind, Kind::EndCrystal(c) if c.show_base)
-    }
-
     /// A human NPC's skin; `None` for the default skin and for other kinds.
     /// It is fixed when the NPC is spawned ([`Context::spawn_human`]); to change it, remove the
     /// NPC and spawn another.
@@ -1531,18 +1550,6 @@ impl Entity {
     #[doc(alias = "Entity::getViewers")]
     pub fn viewers(&self) -> impl Iterator<Item = player::Id> + '_ {
         self.viewers.iter().map(|&s| player::Id::new(s))
-    }
-
-    /// Whether a thrown potion leaves a cloud.
-    #[doc(alias = "entity\\projectile\\SplashPotion::willLinger")]
-    pub fn will_linger(&self) -> bool {
-        matches!(
-            &self.kind,
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { linger: true, .. },
-                ..
-            })
-        )
     }
 
     /// Whether it is underwater TNT.
@@ -1784,31 +1791,6 @@ impl Context<'_> {
         hidden.insert((v, t))
     }
 
-    /// Launches a firework rocket without explosions from `pos` in `world`.
-    /// It launches as a used rocket item without its `Fireworks` data does: it flies 20 ticks and
-    /// up to 12 more, starting slowly upwards with a little random drift. It has no owner and is
-    /// never saved. Unlike [`Self::spawn_firework_rocket`], which takes its flight time, motion
-    /// and explosions from the caller, the flight and drift are random.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
-    pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
-        let w = index(self.state, world)
-            .filter(|_| is_valid_position(pos))
-            .ok_or(Error::NotSpawned)?;
-        if !super::can_create(self.state, w, pos) {
-            return Err(Error::NotSpawned);
-        }
-        let seed = self.state.worlds.get(w).map_or(0, World::seed);
-        // Opened once the rocket can be made: it takes this runtime ID, so no two launches share
-        // the stream.
-        let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
-        let mut random = Random::new(seed, self.state.tick, key);
-        let item = (object::DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
-        object::launch(self.state, w, pos, item, None, &mut random).ok_or(Error::NotSpawned)
-    }
-
     /// Plays `animation` on `actor` for the players who see it.
     /// A player sees its own too. It is a cosmetic packet like a sound: a player whose outbox is
     /// nearly full misses it. False if the actor is gone, or is an entity loaded this tick, which
@@ -1893,31 +1875,37 @@ impl Context<'_> {
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Launches a firework rocket from `pos` in `world` with `motion` in blocks per tick.
-    /// It bursts with `explosions` (see [`Entity::firework_explosions`]) at the age of
-    /// `max_flight_time_ticks`; it has no owner and is never saved.
+    /// Launches a firework rocket from `pos` in `world` that bursts with `explosions` (see
+    /// [`Entity::firework_explosions`]).
+    /// It launches as a used rocket item of flight multiplier 1 does: it flies 20 ticks and up to
+    /// 12 more, starting slowly upwards with a little random drift. It has no owner and is never
+    /// saved. [`Mut::set_max_flight_time_ticks`] and [`Mut::set_motion`] change its flight.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for explosions [`Mut::set_firework_explosions`] refuses or a motion
-    /// that is not finite.
+    /// [`Error::OutOfRange`] for explosions [`Mut::set_firework_explosions`] refuses.
     /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "entity\\object\\FireworkRocket::__construct")]
     pub fn spawn_firework_rocket(
         &mut self,
         world: world::Id,
         pos: Vec3,
-        max_flight_time_ticks: u32,
         explosions: Vec<Compound>,
-        motion: Vec3,
     ) -> Result<Id> {
         let explosions = object::checked_explosions(explosions).ok_or(Error::OutOfRange)?;
-        if !motion.is_finite() {
-            return Err(Error::OutOfRange);
+        let w = index(self.state, world)
+            .filter(|_| is_valid_position(pos))
+            .ok_or(Error::NotSpawned)?;
+        if !super::can_create(self.state, w, pos) {
+            return Err(Error::NotSpawned);
         }
-        let flight = object::flight_multiplier(max_flight_time_ticks);
-        let kind = object::firework(max_flight_time_ticks, flight, explosions, None);
-        self.spawn(world, pos, kind, motion)
+        let seed = self.state.worlds.get(w).map_or(0, World::seed);
+        // Opened once the rocket can be made: it takes this runtime ID, so no two launches share
+        // the stream.
+        let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
+        let mut random = Random::new(seed, self.state.tick, key);
+        let item = (object::DEFAULT_FLIGHT_MULTIPLIER, explosions);
+        object::launch(self.state, w, pos, item, None, &mut random).ok_or(Error::NotSpawned)
     }
 
     /// Spawns a human NPC at `pos` (its feet) in `world`, named `name`.

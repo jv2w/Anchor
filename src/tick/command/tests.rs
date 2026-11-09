@@ -733,7 +733,7 @@ fn the_overload_reasons_name_the_limits_they_enforce() {
     let suffixed = Command::new("a", "").overload(&[Param::suffixed_int("n", "")], handler);
     assert_eq!(
         reason(&suffixed),
-        format!("a suffix is not one to {MAX_NAME} ASCII letters")
+        format!("a suffix is not one to {MAX_NAME_BYTES} ASCII letters")
     );
 }
 
@@ -1451,8 +1451,10 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     let ip = IpAddr::from([10, 1, 2, 3]);
     let change = |state: &mut State, times: usize| {
         let mut cx = Context { state };
-        for _ in 0..times {
-            cx.op("Steve").unwrap();
+        for time in 0..times {
+            // Only the first time adds: the second says it was there already.
+            let first = time == 0;
+            assert_eq!(cx.op("Steve"), Ok(first));
             cx.ban(
                 BanEntry::new("Griefer")
                     .with_reason("tnt")
@@ -1460,7 +1462,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
             )
             .unwrap();
             cx.ban(BanEntry::ip(ip).with_source("console")).unwrap();
-            cx.add_to_whitelist("Alex").unwrap();
+            assert_eq!(cx.add_to_whitelist("Alex"), Ok(first));
         }
     };
     let (mut once, _rx) = server(Vec::new());
@@ -2027,11 +2029,11 @@ fn the_api_docs_name_the_limits_they_enforce() {
             thousands(MAX_TEXT_BYTES)
         ),
         format!("has {} grants.", thousands(MAX_GRANTS)),
-        format!("over {} bytes or holds", permission::MAX_NAME),
+        format!("over {} bytes or holds", permission::MAX_NAME_BYTES),
         format!(
             "a reason over {} bytes or a source over {}.",
-            permission::MAX_REASON,
-            permission::MAX_SOURCE
+            permission::MAX_REASON_BYTES,
+            permission::MAX_SOURCE_BYTES
         ),
         format!("holds {} entries", thousands(permission::MAX_ENTRIES)),
     ] {

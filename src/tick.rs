@@ -39,8 +39,8 @@ pub(crate) use entity::bounded_motion;
 pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
 pub use hook::SentPacket;
 pub(crate) use log::{
-    Answer, EntryKind, Fingerprints, InputLog, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin,
-    Segment, Tick as LoggedTick, write_crash_log,
+    Answer, EntryKind, Fingerprints, InputLog, LoggedPlayer, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES,
+    Origin, Segment, Tick as LoggedTick, write_crash_log,
 };
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
@@ -51,6 +51,7 @@ pub use trade::check_offers;
 pub use view::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::net::IpAddr;
 use std::time::Duration;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
@@ -109,6 +110,10 @@ pub(crate) struct State {
     /// Each joined player's UUID and its session, for [`Context::player_by_uuid`] (a login
     /// chooses its UUID, so two may share one). Derived from `players`.
     uuids: BTreeSet<(Uuid, SessionId)>,
+    /// Each joined player's address and its session, for the address lookup of `/ban-ip`
+    /// (players may share one); a player whose address is unknown has none. Derived from
+    /// `players`.
+    addresses: BTreeSet<(IpAddr, SessionId)>,
     /// The user's event listeners, called only in [`step`].
     listeners: Listeners,
     /// The user's tasks and blocking jobs, called only in [`step`].
@@ -216,6 +221,7 @@ impl State {
             index: BTreeMap::new(),
             names: BTreeSet::new(),
             uuids: BTreeSet::new(),
+            addresses: BTreeSet::new(),
             listeners,
             tasks,
             data,
@@ -263,15 +269,11 @@ impl State {
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
     /// order of the map in memory (FNV-1a 64 over fields in a fixed order and width).
     ///
-    /// The indexes (by key, name, UUID and runtime ID) and each player's key are left out: they
-    /// are functions of the hashed sessions, runtime IDs and identities
-    /// ([`Self::index_matches_players`] checks this in tests). Listeners and tasks are code, fixed
-    /// at build; the settings no API call changes and the shared batches are fixed at start;
-    /// outbound queues are not state; pending output and the outbox are empty between ticks, and
-    /// a player whose outbox overflowed is gone by then. Each world's light and light work are
-    /// hashed by the world ([`World::light_hash`]). Task bodies are code too: when they run is
-    /// hashed. Every field is named (no `..`), so a new field does not compile until it is hashed
-    /// or left out here.
+    /// Each field left out says why. The indexes are functions of the hashed sessions, runtime
+    /// IDs and identities ([`Self::index_matches_players`] checks this in tests). Each world's
+    /// light and light work are hashed by the world ([`World::light_hash`]). Task bodies are code:
+    /// when they run is hashed. Every field is named (no `..`), so a new field does not compile
+    /// until it is hashed or left out here.
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -280,18 +282,23 @@ impl State {
     pub(crate) fn hash(&self) -> u64 {
         let Self {
             settings,
+            // Fixed at start.
             shared: _,
             tick,
             started,
             next_runtime_id,
             players,
+            // Indexes of the players.
             index: _,
             names: _,
             uuids: _,
+            addresses: _,
+            // Code, fixed at build.
             listeners: _,
             tasks,
             data,
             commands,
+            // Code, fixed at build.
             hooks: _,
             forms,
             // Handlers are code; which menus are open is in each player's inventory.
@@ -303,12 +310,15 @@ impl State {
             saving,
             loading,
             logins,
+            // An index of the players.
             runtime_ids: _,
             rules,
             clock,
             trades,
             skin_budget,
+            // Fixed at build.
             custom: _,
+            // Fixed at build; the input log names them.
             fingerprints: _,
             // Fixed at start; the input log chains on from it.
             identity: _,
@@ -352,7 +362,7 @@ impl State {
             immediate_respawn: _,
             show_death_messages: _,
             slow_empty_worlds: _,
-            item_pickup_interval: _,
+            item_pickup_interval_ticks: _,
             max_batch_bytes: _,
             hook_movement_packets: _,
             hook_player_input: _,
@@ -381,6 +391,7 @@ impl State {
                 session: _,
                 runtime_id,
                 identity,
+                // A function of the identity.
                 key: _,
                 world,
                 position,
@@ -389,14 +400,18 @@ impl State {
                 asked_radius,
                 phase,
                 view,
+                // A queue to the session, not state.
                 outbound: _,
+                // Empty between ticks: the output phase and `flush` clear it.
                 pending: _,
                 extra,
                 inventory,
                 survival,
                 breaking,
+                // Empty between ticks: the output phase and `flush` send them.
                 outbox: _,
                 shared_outbox: _,
+                // False between ticks: `drop_overflowed` removes the player in the same tick.
                 overflowed: _,
                 marks,
                 presence,
@@ -443,7 +458,6 @@ impl State {
             }
             h.u64(world.time_ticks().cast_unsigned());
             h.u64(u64::from(world.is_time_stopped()));
-            h.u64(world.age_ticks());
             h.u64(world.difficulty().map_or(0, |d| {
                 u64::from(spawn::difficulty_id(d).cast_unsigned()) + 1
             }));
@@ -493,16 +507,22 @@ impl State {
         h.0
     }
 
-    /// Whether the indexes hold exactly the key, name, UUID and session of every player, and the
-    /// chunks every view has.
+    /// Whether the indexes hold exactly the key, name, UUID, address and session of every player,
+    /// and the chunks every view has.
     #[cfg(test)]
     pub(crate) fn index_matches_players(&self) -> bool {
         let n = self.players.len();
+        let addressed = self
+            .players
+            .values()
+            .filter(|p| p.identity.address.is_some())
+            .count();
         self.chunks.viewers_match(&self.players)
             && self.index.len() == n
             && self.runtime_ids.len() == n
             && self.names.len() == n
             && self.uuids.len() == n
+            && self.addresses.len() == addressed
             && self.players.iter().all(|(&session, p)| {
                 p.key == PlayerKey::of(&p.identity)
                     && self.index.get(&p.key) == Some(&session)
@@ -511,13 +531,16 @@ impl State {
                         .names
                         .contains(&(p.identity.name.to_ascii_lowercase(), session))
                     && self.uuids.contains(&(p.identity.uuid, session))
+                    && p.identity
+                        .address
+                        .is_none_or(|ip| self.addresses.contains(&(ip, session)))
             })
     }
 
     /// Whether world `world` runs its world rules this tick: its time, block updates, block
     /// entities and light (`slow-empty-worlds`, [`wake`]). Server tasks and events always run.
     fn is_awake(&self, world: WorldIndex) -> bool {
-        self.awake.get(crate::save::place(world)) != Some(&Pace::Asleep)
+        self.awake.get(crate::save::list_index(world)) != Some(&Pace::Asleep)
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -616,6 +639,9 @@ impl State {
         self.names
             .insert((player.identity.name.to_ascii_lowercase(), session));
         self.uuids.insert((player.identity.uuid, session));
+        if let Some(ip) = player.identity.address {
+            self.addresses.insert((ip, session));
+        }
         self.runtime_ids.insert(player.runtime_id, session);
         self.players.insert(session, player);
     }
@@ -659,6 +685,9 @@ impl State {
         self.names
             .remove(&(player.identity.name.to_ascii_lowercase(), session));
         self.uuids.remove(&(player.identity.uuid, session));
+        if let Some(ip) = player.identity.address {
+            self.addresses.remove(&(ip, session));
+        }
         self.runtime_ids.remove(&player.runtime_id);
         spawn::left(self, &mut player);
         form::left(self, session);
@@ -746,8 +775,8 @@ pub(crate) struct Settings {
     /// Whether a world without players runs one tick in every [`SLOW_WORLD_PERIOD_TICKS`]
     /// (`slow-empty-worlds`).
     slow_empty_worlds: bool,
-    /// Ticks between item pickup checks (`item-pickup-interval`).
-    item_pickup_interval: u8,
+    /// Ticks between item pickup checks (`item-pickup-interval-ticks`).
+    item_pickup_interval_ticks: u8,
     /// The largest batch a session sends (`max-batch-bytes`), which each player list packet of a
     /// spawn window fits.
     max_batch_bytes: usize,
@@ -802,7 +831,7 @@ impl Settings {
             immediate_respawn: general.immediate_respawn,
             show_death_messages: general.show_death_messages,
             slow_empty_worlds: developer.slow_empty_worlds,
-            item_pickup_interval: developer.item_pickup_interval,
+            item_pickup_interval_ticks: developer.item_pickup_interval_ticks,
             max_batch_bytes: developer.max_batch_bytes,
             hook_movement_packets: developer.hook_movement_packets,
             hook_player_input: developer.hook_player_input,
@@ -820,7 +849,7 @@ impl Settings {
     /// options' values over the global ones.
     fn view(&self, world: WorldIndex) -> ViewLimits {
         self.world_views
-            .get(crate::save::place(world))
+            .get(crate::save::list_index(world))
             .copied()
             .unwrap_or(self.view)
     }
@@ -1001,9 +1030,9 @@ enum Pace {
     Asleep,
 }
 
-/// What one tick sends, delivered after the step.
+/// What one tick sends, delivered after the step and again after the boundary ([`flush`]).
 #[derive(Debug, Default)]
-pub(crate) struct Output {
+struct Output {
     /// Where the tick tells the sessions whose login it admitted ([`Outbound::Admitted`]).
     admits: Vec<mpsc::Sender<Outbound>>,
     /// Messages per session from the output phase, in session order.
@@ -1011,6 +1040,10 @@ pub(crate) struct Output {
     /// Final packets for sessions the tick has already forgotten, each after the messages that
     /// go before it.
     closes: Vec<(mpsc::Sender<Outbound>, Vec<Message>, Packet)>,
+    /// The sessions whose outbound queue was full or closed when messages were sent to them
+    /// ([`send`]), which the next delivery drops ([`deliver`]): after the step's output in the
+    /// same tick, after the boundary's ([`flush`]) in the next.
+    lost: Vec<SessionId>,
     /// Requests for the save thread, in order.
     requests: Vec<Request>,
     /// A commit or a chunk load failed: the server stops without saving.
@@ -1040,7 +1073,7 @@ impl Output {
 
 /// The parts of a [`step`], in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Part {
+enum Part {
     /// The save thread's answers, the session inputs and the tasks.
     Input,
     Survival,
@@ -1159,6 +1192,7 @@ pub(crate) fn run(
         );
         deliver(&mut state, &mut output, &mut guard.log);
         boundary(&mut state, &mut output, &mut guard.log);
+        flush(&mut state, pool, &mut output);
         if guard.log.needs_checkpoint() {
             guard.log.set_checkpoint(state.checkpoint(pool));
         }
@@ -1207,9 +1241,9 @@ pub(crate) fn run(
 
 /// One tick of a replay, as [`run`] applies it: the step with the logged `inputs` and the save
 /// thread's logged `responses`, the delivery (the replay drains the outbound queues, so none
-/// fills), the sessions the live tick forgot after its output (`dropped`, in order), the tick
-/// boundary, and the checkpoint of a segment it starts. Returns the requests for the save thread,
-/// in order.
+/// fills and nothing is lost), the sessions the live tick forgot after its output (`dropped`, in
+/// order), the tick boundary and its output, and the checkpoint of a segment it starts. Returns
+/// the requests for the save thread, in order.
 pub(crate) fn replay_tick(
     state: &mut State,
     inputs: &mut Vec<Input>,
@@ -1225,6 +1259,7 @@ pub(crate) fn replay_tick(
         self::dropped(state, session, log);
     }
     boundary(state, &mut output, log);
+    flush(state, pool, &mut output);
     if log.needs_checkpoint() {
         log.set_checkpoint(state.checkpoint(pool));
     }
@@ -1252,8 +1287,8 @@ pub(crate) fn replay_tick(
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
 ///    not depend on the thread count.
 ///
-/// After the output is delivered, the tick ends with [`boundary`].
-pub(crate) fn step(
+/// After the output is delivered, the tick ends with [`boundary`] and its output ([`flush`]).
+fn step(
     state: &mut State,
     inputs: &mut Vec<Input>,
     responses: &mut Vec<Response>,
@@ -1380,7 +1415,7 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
         Response::Chunk { world, pos, loaded } => view::loaded(state, world, pos, loaded),
         // A joining player and offline loads may wait on the same answer: the join takes it
         // first, so the loads find the player joined, or its data damaged if that refused it.
-        Response::Player { key, data } => match task::take_offline_loads(state, &key) {
+        Response::Player { key, data, .. } => match task::take_offline_loads(state, &key) {
             Some(loads) => {
                 spawn::player_loaded(state, &key, data.clone(), output);
                 task::answer_offline_loads(state, &key, loads, &data);
@@ -1443,7 +1478,9 @@ fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
         Packet::BlockActorData(p) => interact::on_block_actor_data(state, session, p),
         Packet::BookEdit(p) => interact::on_book_edit(state, session, p),
         Packet::PlayerAction(p) => survival::on_player_action(state, session, p),
-        Packet::Animate(p) => survival::on_animate(state, session, p),
+        // Ignored: the arm swing viewers see comes from the attacks and missed swings the server
+        // handles, so a client cannot make every viewer receive a packet per packet it sends.
+        Packet::Animate(_) => {}
         Packet::Respawn(p) => survival::on_respawn(state, session, p),
         Packet::Text(p) => chat::on_text(state, session, p),
         Packet::Emote(p) => survival::on_emote(state, session, p),
@@ -1505,7 +1542,7 @@ fn wake(state: &mut State) {
             }
         }));
     for player in state.players.values() {
-        if let Some(pace) = state.awake.get_mut(crate::save::place(player.world)) {
+        if let Some(pace) = state.awake.get_mut(crate::save::list_index(player.world)) {
             *pace = Pace::Every;
         }
     }
@@ -1548,9 +1585,21 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
     }
 }
 
-/// Sends `output` to the sessions. A session whose queue is full or closed is [`dropped`]; the
-/// tick never waits.
+/// Sends `output` to the sessions ([`send`]), then drops the sessions whose queue was full or
+/// closed, now or when the previous boundary's output was sent ([`Output::lost`]), in session
+/// order, each once ([`dropped`]).
 fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
+    send(state, output);
+    output.lost.sort_unstable();
+    output.lost.dedup();
+    for session in output.lost.drain(..) {
+        dropped(state, session, log);
+    }
+}
+
+/// Sends `output` to the sessions without waiting; a session whose queue is full or closed goes
+/// to [`Output::lost`].
+fn send(state: &State, output: &mut Output) {
     for outbound in output.admits.drain(..) {
         // The answer is the first message of a new queue, so only a session already gone (whose
         // leave the tick takes later) can miss it.
@@ -1572,7 +1621,7 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
             }
             Err(TrySendError::Closed(_)) => {}
         }
-        dropped(state, session, log);
+        output.lost.push(session);
     }
     for (outbound, messages, packet) in output.closes.drain(..) {
         // The session closes when the queue does; a full or closed queue only loses what was
@@ -1592,15 +1641,17 @@ fn dropped(state: &mut State, session: SessionId, log: &mut InputLog) {
 }
 
 /// The tick boundary after a step and its delivery: the callbacks that the quits of the sessions
-/// dropped there deferred, a save snapshot for the save thread if one is due, the offline player
-/// loads the tick asked for, what the tick let go of for the save thread to free, then the
-/// tick's controls to the networking. It comes after the delivery because sessions dropped there
-/// change the state of the tick, and their quit listeners may defer callbacks or ask for controls
-/// or loads; none waits past the tick, where its checkpoint would not keep it.
-pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
-    dispatch::run_deferred(state, &mut output.deferred_runs);
+/// dropped there deferred ([`settle`]), a save snapshot for the save thread if one is due (whose
+/// listeners are settled the same way), the offline player loads the tick asked for, what the
+/// tick let go of for the save thread to free, then the tick's controls to the networking. It
+/// comes after the delivery because sessions dropped there change the state of the tick, and
+/// their quit listeners may defer callbacks or ask for controls or loads; none waits past the
+/// tick, where its checkpoint would not keep it. What it sends goes out with [`flush`].
+fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
+    settle(state, output);
     if let Some(request) = save::snapshot(state, log, false) {
         output.requests.push(request);
+        settle(state, output);
     }
     output.requests.extend(task::offline_requests(state));
     let segments = log.take_discarded();
@@ -1609,6 +1660,35 @@ pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLo
         output.requests.push(Request::Discard { segments, chunks });
     }
     state.network.flush();
+}
+
+/// Runs the deferred callbacks, sends the block entities they marked and disconnects the players
+/// whose outbox overflowed, until a round runs no callback and finds no overflow: each quit may
+/// defer callbacks, mark block entities or overflow another outbox. Each round that goes on runs
+/// a callback (up to the tick's limit) or removes a player, so it ends.
+fn settle(state: &mut State, output: &mut Output) {
+    loop {
+        let runs = output.deferred_runs;
+        dispatch::run_deferred(state, &mut output.deferred_runs);
+        block_entity::send_marked(state);
+        if output.deferred_runs == runs && !state.players.values().any(|p| p.overflowed) {
+            return;
+        }
+        drop_overflowed(state, output);
+    }
+}
+
+/// Sends what the tick queued after its output phase: the packets of the delivery's quit
+/// listeners and of the boundary's callbacks and listeners, the block changes they made and what
+/// they marked for the output phase, built by the output phase again ([`spawn::output`]), and the
+/// sessions the boundary closed. So every outbox and every player's pending output is empty
+/// between ticks, where a checkpoint is taken. A session whose queue is full or closed now is
+/// dropped by the next tick's delivery ([`Output::lost`]): dropping it here would run its quit
+/// listeners, whose packets would wait past the tick again.
+fn flush(state: &mut State, pool: &Pool, output: &mut Output) {
+    let changes = view::take_changes(&mut state.worlds);
+    output.packets = spawn::output(state, pool, &changes);
+    send(state, output);
 }
 
 /// Sends the waiting requests in order without waiting; what does not fit waits for the next
@@ -1828,6 +1908,7 @@ mod tests {
                 Request::Player(key) => out.push(Response::Player {
                     key,
                     data: PlayerLoad::Absent,
+                    logged: LoggedPlayer::of(&PlayerLoad::Absent),
                 }),
                 Request::Commit(snapshot) => {
                     out.push(Response::Committed {
@@ -1852,6 +1933,7 @@ mod tests {
         POOL.with(|pool| step(state, batch, &mut answers, pool, output, &mut log));
         deliver(state, output, &mut log);
         boundary(state, output, &mut log);
+        POOL.with(|pool| flush(state, pool, output));
         let requests = std::mem::take(&mut output.requests);
         output.answers = answer(state, requests);
     }
@@ -2520,6 +2602,54 @@ mod tests {
         tick(&mut state, &mut vec![radius(1, 1, 4)], &mut output);
         assert!(state.players.is_empty());
         assert_eq!(state.deferred.len(), 0);
+    }
+
+    /// What a quit listener sends when the delivery drops a session goes out in that tick, so no
+    /// outbox holds a packet between ticks, where a checkpoint is taken.
+    #[test]
+    fn what_a_dropped_session_s_quit_sends_goes_out_in_its_tick() {
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            |_: &mut PlayerQuit, cx: &mut super::Context<'_>| {
+                let watcher = crate::player::Id::new(SessionId::new(2));
+                if let Some(player) = cx.player_mut(watcher) {
+                    player
+                        .send(crate::player::Message::Raw("gone".to_owned()))
+                        .unwrap();
+                }
+            },
+        );
+        let mut state = new_state(settings(|_| {}), listeners);
+        let mut output = Output::default();
+        let (outbound, _rx) = mpsc::channel(1);
+        let kind = InputKind::Join {
+            identity: identity(1),
+            outbound,
+        };
+        let (watcher, mut rx) = join(2, 0);
+        tick(
+            &mut state,
+            &mut vec![input(1, 0, kind), watcher],
+            &mut output,
+        );
+        received(&mut rx);
+        // The join filled session 1's queue; the radius answer does not fit, so the delivery
+        // drops it.
+        tick(&mut state, &mut vec![radius(1, 1, 4)], &mut output);
+        assert!(!state.players.contains_key(&SessionId::new(1)));
+        assert!(
+            state
+                .players
+                .values()
+                .all(|p| p.outbox.is_empty() && p.shared_outbox.is_empty())
+        );
+        let (packets, _, _) = received(&mut rx);
+        assert!(
+            packets
+                .iter()
+                .any(|p| matches!(p, Packet::Text(t) if t.message == "gone"))
+        );
     }
 
     /// An outbox a view phase listener overflows is not sent: its player is sent off with the
@@ -3565,6 +3695,7 @@ mod tests {
             );
             deliver(&mut state, &mut output, &mut log);
             boundary(&mut state, &mut output, &mut log);
+            flush(&mut state, &pool, &mut output);
             let requests = std::mem::take(&mut output.requests);
             for request in &requests {
                 if let Request::Commit(snapshot) = request {
@@ -3666,6 +3797,7 @@ mod tests {
                     log::Answer::Player { key, data } => Response::Player {
                         key: crate::storage::PlayerKey::from_text(key),
                         data: data.to_load().unwrap(),
+                        logged: Ok(data.clone()),
                     },
                     log::Answer::Committed(start) => Response::Committed { start: *start },
                     log::Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
@@ -3692,6 +3824,7 @@ mod tests {
                 dropped(&mut state, session, &mut log);
             }
             boundary(&mut state, &mut output, &mut log);
+            flush(&mut state, pool, &mut output);
             output.requests.clear();
             hashes.push(state.hash());
         }
@@ -3823,6 +3956,7 @@ mod tests {
             POOL.with(|pool| step(state, &mut batch, &mut answers, pool, output, log));
             deliver(state, output, log);
             boundary(state, output, log);
+            POOL.with(|pool| flush(state, pool, output));
             let requests = std::mem::take(&mut output.requests);
             output.answers = answer(state, requests);
         }

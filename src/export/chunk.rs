@@ -17,7 +17,7 @@ use crate::storage::codec::{Biomes, BlockLayer, ChunkRecord};
 use crate::world::{ChunkPos, MIN_Y};
 
 /// The key tag of a chunk's height map and biomes, which the import does not read.
-const DATA_3D: u8 = 0x2b;
+pub(crate) const DATA_3D: u8 = 0x2b;
 /// The key tag of a chunk's finalization state, which the import does not read.
 const FINALIZED_STATE: u8 = 0x36;
 /// The finalization state of a chunk whose generation is finished: the game does not populate
@@ -26,11 +26,11 @@ const FINISHED: i32 = 2;
 /// The height map at the start of `Data3D`: 256 `i16`.
 const HEIGHT_MAP_BYTES: usize = 512;
 /// A biome storage header that repeats the storage below.
-const SAME_BIOMES: u8 = 0xff;
+pub(crate) const SAME_BIOMES: u8 = 0xff;
 
 /// The values of the chunk at `pos` with the terrain `record` and the block entities
 /// `block_entities`, sorted by key.
-pub(super) fn values(
+pub(crate) fn values(
     pos: ChunkPos,
     record: &ChunkRecord,
     block_entities: &[&Compound],

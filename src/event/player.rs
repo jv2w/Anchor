@@ -365,8 +365,9 @@ impl PlayerDuplicateLogin {
         self.cancelled
     }
 
-    /// The reason given to the disconnected player. Starts as the client's key
-    /// `"disconnectionScreen.loggedinOtherLocation"`, which the client shows in its language.
+    /// The reason given to the disconnected player. Starts as the client's text key
+    /// `"disconnectionScreen.loggedinOtherLocation"`; whether the official client shows a key
+    /// sent as the reason in its language or as it is is not confirmed.
     #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectReason")]
     pub fn kick_reason(&self) -> &str {
         &self.reason
@@ -1005,7 +1006,7 @@ cancellable! {
 }
 
 /// Raised when a player has logged in, before its client gets the resource packs: Anchor has
-/// already set the kick flags that apply (server full, not white-listed, banned). The player
+/// already set the kick flags that apply (server full, not whitelisted, banned). The player
 /// goes on to the resource packs and the join when no flag is set after the listeners; otherwise
 /// the player is refused with the first flag's message, having downloaded nothing. When the same
 /// player is online, its slot does not count toward a full server; [`PlayerDuplicateLogin`]
@@ -1156,7 +1157,7 @@ pub enum KickFlag {
     /// The server is full.
     #[doc(alias = "PlayerPreLoginEvent::KICK_FLAG_SERVER_FULL")]
     ServerFull,
-    /// The white-list is on and the player is not on it.
+    /// The whitelist is on and the player is not on it.
     #[doc(alias = "PlayerPreLoginEvent::KICK_FLAG_SERVER_WHITELISTED")]
     ServerWhitelisted,
     /// The player's name or address is banned.

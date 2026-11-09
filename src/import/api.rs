@@ -22,6 +22,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::{error, info, warn};
 
@@ -34,7 +35,7 @@ use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
 use crate::storage::codec::{BlockLayer, ChunkRecord, SubChunkRecord, WorldRecord};
 use crate::storage::seal::{MAX_RECORD_BYTES, seal};
-use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
+use crate::storage::{Batch, ChunkKind, Handle, Import, Key, Place, Start, Storage};
 use crate::world::{self, BlockPos, Chunk, ChunkPos, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// The values a batch reserves room for per chunk beyond its sub-chunks: a few block entity pages.
@@ -226,7 +227,12 @@ pub(crate) fn run(
 /// `start` says, on a CPU pool of `cpu` threads that is joined before returning. It is written
 /// into a temporary file ([`temp_place`]) and renamed to `place` once whole ([`publish`]). A file
 /// at `place` already, made since the caller found none, is refused with [`Error::WorldExists`]
-/// and left as it is. On any other failure, no world file is left.
+/// and left as it is, as is a temporary file another import of the name is writing. On any
+/// other failure, no world file is left.
+///
+/// The temporary file's lock ([`claim_temp`]) is held until the file is renamed or removed, so an
+/// import of the same name meanwhile never empties, removes or renames it, and finds the world
+/// file once it may take the lock.
 fn write_world(
     place: &Place,
     start: Start,
@@ -240,9 +246,12 @@ fn write_world(
     // Started before the temporary file is made, so a pool that fails to start leaves no file.
     let pool = crate::runtime::cpu_pool(cpu)?;
     let temp = temp_place(place);
-    let written = create_file(&temp, &spec.name).and_then(|()| {
-        let mut storage = open_created(&temp, start, &spec.name)?;
-        let imported = (|| {
+    let written = claim_temp(&temp, &place.file, &spec.name).and_then(|handle| {
+        let lock = Arc::clone(&handle);
+        let published = (|| {
+            let mut storage =
+                Storage::open_checked(&temp, Some(handle), start.backup, start.max_backups)
+                    .map_err(save::data_error(&temp.file))?;
             let (import, report) = prepare(
                 &mut storage,
                 &pool,
@@ -257,22 +266,19 @@ fn write_world(
             // The source must still be what was read, or the world would mix two states of it.
             source.unchanged()?;
             import.commit().map_err(save::data_error(&temp.file))?;
+            publish(&temp.file, &place.file, &spec.name)?;
+            // The mark of a normal close goes to the same file under its new name.
+            if let Err(e) = storage.close() {
+                remove_file(&place.file);
+                return Err(save::data_error(&place.file)(e));
+            }
             Ok::<_, crate::Error>(report)
         })();
-        // `storage` moves into the closure, so it is dropped, and the file closed, here whether
-        // the import failed or not.
-        let closed = imported.and_then(|report| {
-            storage.close().map_err(save::data_error(&temp.file))?;
-            Ok(report)
-        });
-        let published = closed.and_then(|report| {
-            publish(&temp.file, &place.file, &spec.name)?;
-            Ok(report)
-        });
         if published.is_err() {
             // The temporary file is the import's own: it goes whole.
             remove_file(&temp.file);
         }
+        drop(lock);
         published
     });
     // `Pool::shutdown` warns about threads that did not end.
@@ -291,55 +297,37 @@ fn temp_place(place: &Place) -> Place {
     }
 }
 
-/// Makes the empty temporary world file of `place` for the world `name`, which [`Storage::open`]
-/// starts as a new one. One a crashed import left is that import's own and goes first; one made
-/// again since, by an import of the same name, refuses it with [`Error::WorldExists`]. Making it
-/// only if there is none makes the file the import's own, which a failure removes.
+/// Takes the temporary file `temp` of the world file `file` for the world `name`, made if
+/// missing, and holds its lock ([`Handle::claim`]) for the import, emptied: what a crashed import
+/// left there is that import's. A temporary file another import of the name holds is refused
+/// with [`Error::WorldExists`] and left as it is, and so is the file once `file` is there: that
+/// import published it under the lock, and the handle may be of the published file.
 #[expect(
     clippy::disallowed_methods,
-    clippy::disallowed_types,
     reason = "off-tick: the import makes its own world file before the server runs"
 )]
-fn create_file(place: &Place, name: &str) -> crate::Result<()> {
-    let stored = save::data_error(&place.file);
-    if let Some(dir) = place.file.parent() {
+fn claim_temp(temp: &Place, file: &Path, name: &str) -> crate::Result<Arc<Handle>> {
+    let stored = save::data_error(&temp.file);
+    let exists = || -> crate::Error {
+        Error::WorldExists {
+            name: name.to_owned(),
+        }
+        .into()
+    };
+    if let Some(dir) = temp.file.parent() {
         crate::fs::create_dir_all_durable(dir).map_err(|e| stored(crate::storage::Error::Io(e)))?;
     }
-    match std::fs::remove_file(&place.file) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(stored(crate::storage::Error::Io(e))),
+    let handle = match Handle::claim(&temp.file) {
+        Ok(handle) => handle,
+        Err(crate::storage::Error::InUse) => return Err(exists()),
+        Err(e) => return Err(stored(e)),
+    };
+    // Checked under the lock: an import of the name renames its file before it lets go.
+    if std::fs::exists(file).map_err(|e| stored(crate::storage::Error::Io(e)))? {
+        return Err(exists());
     }
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&place.file)
-    {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error::WorldExists {
-            name: name.to_owned(),
-        }
-        .into()),
-        Err(e) => Err(stored(crate::storage::Error::Io(e))),
-    }
-}
-
-/// Opens the temporary world file of `place` that the import just made for the world `name`, as
-/// `start` says. A file another process opened first (an import of the same name meanwhile) is
-/// that process's: refused with [`Error::WorldExists`] and left as it is. On any other failure
-/// the file is removed.
-fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storage> {
-    match Storage::open(place, start) {
-        Ok(storage) => Ok(storage),
-        Err(crate::storage::Error::InUse) => Err(Error::WorldExists {
-            name: name.to_owned(),
-        }
-        .into()),
-        Err(e) => {
-            remove_file(&place.file);
-            Err(save::data_error(&place.file)(e))
-        }
-    }
+    handle.empty().map_err(stored)?;
+    Ok(handle)
 }
 
 /// Renames the finished temporary file `temp` to the world file `file`, which must not be there:

@@ -5,7 +5,7 @@ use super::damage::{self, Damage};
 use super::effects::{self, Active};
 use super::{
     EYE_HEIGHT, MAX_FOOD, MAX_SATURATION, Survival, broadcast_to_viewers, difficulty, feet,
-    game_mode, player_random, sound, world_seed,
+    player_random, sound, world_seed,
 };
 use crate::block;
 use crate::config::{Difficulty, GameMode};
@@ -148,7 +148,7 @@ pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
     };
-    let mode = game_mode(state, player);
+    let mode = player.game_mode();
     let Some(item) = player.inventory.held().item() else {
         return false;
     };
@@ -183,7 +183,7 @@ pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
     if player.inventory.held().item() != Some(item) {
         return false;
     }
-    if player.survival.is_dead() || game_mode(state, player) == GameMode::Spectator {
+    if player.survival.is_dead() || player.game_mode() == GameMode::Spectator {
         return true;
     }
     let elapsed = state.tick.saturating_sub(using.since);
@@ -422,9 +422,10 @@ fn chorus_teleport(state: &mut State, session: SessionId) {
     }
 }
 
-/// Counts one tick of food: peaceful refills food and heals; food of 18 or more heals every 80
-/// ticks for 6 exhaustion; an empty bar starves (easy down to 10 health, normal to 1, hard to
-/// death); food at 6 or below stops sprinting.
+/// Counts one tick of food of a player in survival or adventure: peaceful refills food and heals;
+/// food of 18 or more heals every 80 ticks for 6 exhaustion; an empty bar starves (easy down to
+/// 10 health, normal to 1, hard to death); food at 6 or below stops sprinting. While food is off
+/// for the player, its bar heals as a full one does, for no exhaustion, and peaceful still heals.
 pub(super) fn tick(state: &mut State, session: SessionId) {
     let world = state.players.get(&session).map_or(0, |p| p.world);
     let peaceful = difficulty(state, world) == Difficulty::Peaceful;
@@ -436,6 +437,7 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         if s.is_dead() {
             return;
         }
+        let has_food = s.motion.food;
         player.data_dirty = true;
         s.food_timer += 1;
         if s.food_timer >= FOOD_CYCLE_TICKS {
@@ -443,20 +445,20 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         }
         let mut peaceful_heal = false;
         if peaceful && s.food_timer % 10 == 0 {
-            if s.food < MAX_FOOD {
+            if has_food && s.food < MAX_FOOD {
                 set_food(s, math::min(s.food + 1.0, MAX_FOOD));
             }
             peaceful_heal = s.food_timer % 20 == 0 && s.health < s.max_health();
         }
         let (mut full, mut starve) = (false, false);
         if s.food_timer == 0 {
-            if s.food >= MIN_HEAL_FOOD {
+            if !has_food || s.food >= MIN_HEAL_FOOD {
                 full = true;
             } else if s.food <= MAX_STARVE_FOOD {
                 starve = true;
             }
         }
-        if s.food <= MAX_NO_SPRINT_FOOD && s.motion.sprinting {
+        if has_food && s.food <= MAX_NO_SPRINT_FOOD && s.motion.sprinting {
             s.motion.sprinting = false;
             s.mark(MOVEMENT);
         }

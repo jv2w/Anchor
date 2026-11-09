@@ -1,17 +1,17 @@
-//! World clocks: a world's time and age, and the corrections clients get.
+//! World clocks: a world's time, and the corrections clients get.
 //!
 //! A world's time ([`time_ticks`](crate::world::World::time_ticks)) is the official server's
 //! `minecraft:overworld` clock: it starts at 0 in a new world, counts on past a day, and is saved
 //! with the world record at every commit, so a restart continues the day cycle at the tick it was
-//! saved. Its age ([`age_ticks`](crate::world::World::age_ticks)), the official server's game
-//! time, counts every tick the world runs. Clients run the day cycle themselves; the official
-//! server corrects them with `SyncWorldClocks` every 256 ticks or so and never sends `SetTime`
-//! (P6), so Anchor does the same, and again whenever time jumps.
+//! saved. Clients run the day cycle themselves; the official server corrects them with
+//! `SyncWorldClocks` every 256 ticks or so and never sends `SetTime` (P6), so Anchor does the
+//! same, and again whenever time jumps.
 
 use crate::protocol::consts::ClockPayloadType;
 use crate::protocol::packet::{Packet, SyncWorldClocks};
 use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData};
 use crate::save::WorldIndex;
+use crate::tick::world_api::world_at;
 use crate::tick::{Phase, Settings, State, checkpoint};
 use crate::world::{DAY, World};
 
@@ -77,7 +77,7 @@ impl Clock {
         reason = "invariant: the table holds the world once it has grown"
     )]
     fn world_mut(&mut self, world: WorldIndex) -> &mut WorldClock {
-        let at = crate::save::place(world);
+        let at = crate::save::list_index(world);
         if self.worlds.len() <= at {
             let len = at.saturating_add(1);
             self.worlds.resize(len, WorldClock::default());
@@ -97,10 +97,10 @@ struct WorldClock {
 
 checkpoint::fields!(WorldClock { sync_in });
 
-/// Counts one tick of every loaded world's clock: the world ages, time advances unless it is
-/// stopped, and clients are corrected now and then. With `daylight-cycle = false` no time passes
-/// anywhere, as with the official server's `doDayLightCycle` false, whose game time still goes
-/// on (P6 `clocks`); clients are still corrected, as the official server does.
+/// Counts one tick of every loaded world's clock: time advances unless it is stopped, and clients
+/// are corrected now and then. With `daylight-cycle = false` no time passes anywhere, as with the
+/// official server's `doDayLightCycle` false (P6 `clocks`); clients are still corrected, as the
+/// official server does.
 pub(super) fn tick(state: &mut State) {
     let count = state.worlds.len();
     let daylight = state.settings.daylight_cycle;
@@ -114,11 +114,11 @@ pub(super) fn tick(state: &mut State) {
         else {
             continue;
         };
-        if let Some(w) = state.worlds.get_mut(world) {
-            w.add_age_tick();
-            if daylight && !w.is_time_stopped() {
-                w.set_time(w.time_ticks().wrapping_add(1));
-            }
+        if let Some(w) = state.worlds.get_mut(world)
+            && daylight
+            && !w.is_time_stopped()
+        {
+            w.set_time(w.time_ticks().wrapping_add(1));
         }
         let c = state.clock.world_mut(world);
         let sync = c.sync_in == 0;
@@ -139,7 +139,7 @@ fn correct_clients(state: &mut State) {
     let mut players = std::mem::take(&mut state.players);
     for p in players.values_mut() {
         if p.phase == Phase::Spawned && is_corrected(state, p.world) {
-            p.send_to_viewer(clock_state(state, p.world));
+            p.send_to_viewer(clock_state(world_at(state, p.world)));
         }
     }
     state.players = players;
@@ -153,34 +153,37 @@ fn is_corrected(state: &State, world: WorldIndex) -> bool {
         && state
             .clock
             .worlds
-            .get(crate::save::place(world))
+            .get(crate::save::list_index(world))
             .is_some_and(|c| c.sync_in == SYNC_TICKS - 1)
 }
 
-/// `SyncWorldClocks` with the world's time (payload 0, as the official server sends before
-/// `StartGame` and to correct clients).
-pub(in crate::tick) fn clock_state(state: &State, world: WorldIndex) -> Packet {
+/// `SyncWorldClocks` with `world`'s time (payload 0, as the official server sends before
+/// `StartGame` and to correct clients). The clock is paused while the time is stopped through
+/// the API; with `daylight-cycle = false` the time stands still as the official server's does
+/// with `doDayLightCycle` false: the rule holds the client's clock, which is not paused (P6
+/// `rules`).
+pub(in crate::tick) fn clock_state(world: &World) -> Packet {
     Packet::SyncWorldClocks(SyncWorldClocks {
         payload_type: u32::from(ClockPayloadType::SyncState),
         sync_states: vec![SyncWorldClockStateData {
             clock_id: OVERWORLD_CLOCK,
-            time: packet_time(time(state, world)),
-            paused: is_stopped(state, world),
+            time: packet_time(world.time_ticks()),
+            paused: world.is_time_stopped(),
         }],
         ..SyncWorldClocks::default()
     })
 }
 
-/// `SyncWorldClocks` defining the world's clock and its time markers (payload 1, as the official
-/// server sends after `SetSpawnPosition`).
-pub(in crate::tick) fn clock_definition(state: &State, world: WorldIndex) -> Packet {
+/// `SyncWorldClocks` defining `world`'s clock and its time markers (payload 1, as the official
+/// server sends after `SetSpawnPosition`), paused as [`clock_state`] says.
+pub(in crate::tick) fn clock_definition(world: &World) -> Packet {
     Packet::SyncWorldClocks(SyncWorldClocks {
         payload_type: u32::from(ClockPayloadType::InitializeRegistry),
         clocks: vec![WorldClockData {
             id: OVERWORLD_CLOCK,
             name: OVERWORLD_CLOCK_NAME.to_owned(),
-            time: packet_time(time(state, world)),
-            paused: is_stopped(state, world),
+            time: packet_time(world.time_ticks()),
+            paused: world.is_time_stopped(),
             time_markers: MARKERS
                 .iter()
                 .map(|&(id, name, time)| TimeMarkerData {
@@ -195,11 +198,6 @@ pub(in crate::tick) fn clock_definition(state: &State, world: WorldIndex) -> Pac
     })
 }
 
-/// The time of `world` (0 for a world that does not exist).
-fn time(state: &State, world: WorldIndex) -> i64 {
-    state.worlds.get(world).map_or(0, World::time_ticks)
-}
-
 /// The day cycle lock time of `StartGame`: the time of day the time stands still at with
 /// `daylight-cycle = false`, as the official server sends it with `doDayLightCycle` false (P6
 /// `rulesjoin`), 0 otherwise.
@@ -209,13 +207,6 @@ pub(in crate::tick) fn day_cycle_lock_time(settings: &Settings, world: &World) -
     } else {
         packet_time(i64::from(world.time_of_day()))
     }
-}
-
-/// Whether `world`'s time is stopped through the API: clients then pause their clock too. With
-/// `daylight-cycle = false` the time stands still as the official server's does with
-/// `doDayLightCycle` false: the rule holds the client's clock, which is not paused (P6 `rules`).
-fn is_stopped(state: &State, world: WorldIndex) -> bool {
-    state.worlds.get(world).is_some_and(World::is_time_stopped)
 }
 
 /// A time as the packets carry it (an `i32`, wrapping).

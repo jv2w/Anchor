@@ -394,7 +394,7 @@ fn still_shoots(state: &State, session: SessionId, mode: GameMode, hooks: Hooks)
 /// The player of `session` if it may shoot: spawned, alive and not a spectator.
 fn shooter(state: &State, session: SessionId, hooks: Hooks) -> Option<Shooter> {
     let player = state.players.get(&session)?;
-    let mode = survival::game_mode(state, player);
+    let mode = player.game_mode();
     if player.phase != Phase::Spawned || !(hooks.is_alive)(player) || mode == GameMode::Spectator {
         return None;
     }
@@ -1132,7 +1132,7 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
             return None;
         };
         let player = state.players.get(&session)?;
-        let finite = survival::has_finite_resources(survival::game_mode(state, player));
+        let finite = survival::has_finite_resources(player.game_mode());
         let refused =
             a.pickup == ArrowPickup::None || (a.pickup == ArrowPickup::Creative && finite);
         (!refused).then_some(finite)

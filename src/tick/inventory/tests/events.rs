@@ -277,7 +277,8 @@ fn villager(w: &mut World) -> crate::entity::Id {
             Value::List(List::Compound(vec![offer])),
         )]),
         &crate::custom::Registry::default(),
-    );
+    )
+    .unwrap();
     let npc = entity::Npc::Villager {
         profession: 1,
         offers,

@@ -28,7 +28,7 @@ pub(crate) const SPLIT_BYTES: usize = 256 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
     compression: Compression,
-    threshold: u16,
+    threshold_bytes: u16,
     zlib_level: u8,
     max_batch_bytes: usize,
 }
@@ -38,8 +38,8 @@ impl Settings {
     const BATCH_BYTES_RANGE: RangeInclusive<usize> = 1024 * 1024..=64 * 1024 * 1024;
     /// The default `max_batch_bytes`.
     pub(crate) const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
-    /// The default `threshold`.
-    pub(crate) const DEFAULT_THRESHOLD: u16 = 256;
+    /// The default `threshold_bytes`.
+    pub(crate) const DEFAULT_THRESHOLD_BYTES: u16 = 256;
     /// The default `zlib_level`.
     pub(crate) const DEFAULT_ZLIB_LEVEL: u8 = 6;
     /// The accepted values of `zlib_level`.
@@ -47,8 +47,8 @@ impl Settings {
 
     /// Settings with every value checked; nothing is clamped.
     ///
-    /// - `threshold`: payloads shorter than this are sent uncompressed; 0 is rejected because
-    ///   implementations disagree on what it means.
+    /// - `threshold_bytes`: payloads shorter than this are sent uncompressed; 0 is rejected
+    ///   because implementations disagree on what it means.
     /// - `zlib_level`: 1 (fastest) to 9 (smallest); checked even when Snappy is chosen.
     /// - `max_batch_bytes`: 1 MiB to 64 MiB; the largest payload encoded or decoded.
     ///
@@ -59,11 +59,11 @@ impl Settings {
     /// [`Error::MaxBatchBytes`] for a size limit outside 1 MiB to 64 MiB.
     pub fn new(
         compression: Compression,
-        threshold: u16,
+        threshold_bytes: u16,
         zlib_level: u8,
         max_batch_bytes: usize,
     ) -> Result<Self> {
-        if threshold == 0 {
+        if threshold_bytes == 0 {
             return Err(Error::Threshold);
         }
         if !Self::ZLIB_LEVEL_RANGE.contains(&zlib_level) {
@@ -74,7 +74,7 @@ impl Settings {
         }
         Ok(Self {
             compression,
-            threshold,
+            threshold_bytes,
             zlib_level,
             max_batch_bytes,
         })
@@ -95,9 +95,9 @@ impl Settings {
         self.max_batch_bytes
     }
 
-    /// The smallest payload length that is compressed.
-    pub fn threshold(&self) -> u16 {
-        self.threshold
+    /// The smallest payload length, in bytes, that is compressed.
+    pub fn threshold_bytes(&self) -> u16 {
+        self.threshold_bytes
     }
 
     /// The zlib compression level.
@@ -110,7 +110,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             compression: Compression::default(),
-            threshold: Self::DEFAULT_THRESHOLD,
+            threshold_bytes: Self::DEFAULT_THRESHOLD_BYTES,
             zlib_level: Self::DEFAULT_ZLIB_LEVEL,
             max_batch_bytes: Self::DEFAULT_MAX_BATCH_BYTES,
         }
@@ -150,7 +150,7 @@ impl Encoder {
     /// [`Error::Compression`] for a payload over `max_batch_bytes`.
     pub fn encode(&mut self, payload: &[u8], out: &mut Vec<u8>) -> Result<()> {
         out.clear();
-        if payload.len() < usize::from(self.settings.threshold) {
+        if payload.len() < usize::from(self.settings.threshold_bytes) {
             // Room for the checksum RakNet encryption appends.
             out.reserve(1 + payload.len() + CHECKSUM_BYTES);
             out.push(HEADER_UNCOMPRESSED);
@@ -816,7 +816,7 @@ mod tests {
     fn default_settings_are_snappy_with_the_documented_limits() {
         let default = Settings::default();
         assert_eq!(default, settings(Compression::Snappy));
-        assert_eq!(default.threshold(), 256);
+        assert_eq!(default.threshold_bytes(), 256);
         assert_eq!(default.zlib_level(), 6);
         assert_eq!(default.max_batch_bytes(), 16 * MIB);
     }

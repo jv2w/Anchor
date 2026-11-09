@@ -33,7 +33,7 @@ const PARTICLES: &str = "ShowParticles";
 pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
 
 /// An effect with its duration and strength, as a potion or food gives it. A
-/// `Copy` value: the `with_*` methods return a changed copy.
+/// `Copy` value: the methods that return `Self` return a changed copy.
 #[doc(alias = "EffectInstance")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Instance {
@@ -54,7 +54,7 @@ impl Instance {
             Some(Value::Byte(b)) => Some(*b),
             _ => None,
         };
-        let effect = Type::from_id(i32::from(byte(ID)?))?;
+        let effect = Type::from_id(byte(ID)?)?;
         let Some(Value::Int(saved)) = c.get(DURATION) else {
             return None;
         };
@@ -71,7 +71,11 @@ impl Instance {
             byte(PARTICLES).unwrap_or(1) != 0,
             byte(AMBIENT).unwrap_or(0) != 0,
         );
-        Some(instance.with_infinite(infinite))
+        Some(if infinite {
+            instance.infinite()
+        } else {
+            instance
+        })
     }
 
     /// An effect instance lasting `duration` ticks, at most [`MAX_DURATION_TICKS`]; the static
@@ -157,11 +161,23 @@ impl Instance {
         u16::from(self.amplifier) + 1
     }
 
-    /// The same instance with faint particles, or not.
+    /// The same instance with faint particles.
     #[doc(alias = "EffectInstance::setAmbient")]
     #[must_use]
-    pub const fn with_ambient(self, ambient: bool) -> Self {
-        Self { ambient, ..self }
+    pub const fn ambient(self) -> Self {
+        Self {
+            ambient: true,
+            ..self
+        }
+    }
+
+    /// The same instance never ending: its duration counts down and starts again.
+    #[must_use]
+    pub const fn infinite(self) -> Self {
+        Self {
+            infinite: true,
+            ..self
+        }
     }
 
     /// The same instance at `amplifier` (0 is level I).
@@ -184,17 +200,14 @@ impl Instance {
         Self { duration, ..self }
     }
 
-    /// The same instance never ending, or not: its duration counts down and starts again.
-    #[must_use]
-    pub const fn with_infinite(self, infinite: bool) -> Self {
-        Self { infinite, ..self }
-    }
-
-    /// The same instance showing particles, or not.
+    /// The same instance showing no particles.
     #[doc(alias = "EffectInstance::setVisible")]
     #[must_use]
-    pub const fn with_visible(self, visible: bool) -> Self {
-        Self { visible, ..self }
+    pub const fn without_particles(self) -> Self {
+        Self {
+            visible: false,
+            ..self
+        }
     }
 
     /// The saved form of the instance, one for players and clouds: `Id` and `Amplifier` (bytes),
@@ -269,9 +282,8 @@ impl PotionData {
 impl Type {
     /// The effect type with this save and network ID, or `None`.
     #[doc(alias = "EffectIdMap::fromId")]
-    pub fn from_id(id: i32) -> Option<Self> {
-        let id = usize::try_from(id).ok()?;
-        table::TYPES_BY_ID.get(id).copied().flatten()
+    pub fn from_id(id: u8) -> Option<Self> {
+        table::TYPES_BY_ID.get(usize::from(id)).copied().flatten()
     }
 
     /// Every effect type, in name order.
@@ -287,7 +299,7 @@ impl Type {
 
     /// An instance of the effect with the defaults: the [default
     /// duration](Self::default_duration_ticks), level I, particles shown, not ambient, not infinite.
-    /// The [`Instance`] `with_*` methods change the rest.
+    /// The [`Instance`] methods that return `Self` change the rest.
     #[doc(alias = "EffectInstance::__construct")]
     pub fn instance(self) -> Instance {
         Instance::new(self, self.default_duration_ticks(), 0, true, false)
@@ -340,9 +352,8 @@ impl Type {
 impl Potion {
     /// The potion type with this save and network ID (a potion item's meta), or `None`.
     #[doc(alias = "PotionTypeIdMap::fromId")]
-    pub fn from_id(id: i32) -> Option<Self> {
-        let id = usize::try_from(id).ok()?;
-        table::POTIONS_BY_ID.get(id).copied().flatten()
+    pub fn from_id(id: u8) -> Option<Self> {
+        table::POTIONS_BY_ID.get(usize::from(id)).copied().flatten()
     }
 
     /// Every potion type, in name order.
@@ -482,14 +493,13 @@ mod tests {
     #[test]
     fn ids_round_trip() {
         for t in Type::all() {
-            assert_eq!(Type::from_id(i32::from(t.id())), Some(*t));
+            assert_eq!(Type::from_id(t.id()), Some(*t));
         }
         for p in Potion::all() {
-            assert_eq!(Potion::from_id(i32::from(p.id())), Some(*p));
+            assert_eq!(Potion::from_id(p.id()), Some(*p));
         }
-        assert_eq!(Type::from_id(-1), None);
-        assert_eq!(Type::from_id(1000), None);
-        assert_eq!(Potion::from_id(1000), None);
+        assert_eq!(Type::from_id(u8::MAX), None);
+        assert_eq!(Potion::from_id(u8::MAX), None);
     }
 
     // api: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
@@ -547,9 +557,9 @@ mod tests {
         let changed = speed
             .with_duration_ticks(u32::MAX)
             .with_amplifier(255)
-            .with_visible(false)
-            .with_ambient(true)
-            .with_infinite(true);
+            .without_particles()
+            .ambient()
+            .infinite();
         assert_eq!(changed.duration_ticks(), MAX_DURATION_TICKS);
         assert_eq!((changed.amplifier(), changed.level()), (255, 256));
         assert!(!changed.is_visible() && changed.is_ambient() && changed.is_infinite());
@@ -580,11 +590,11 @@ mod tests {
         let mean = |i: usize| u8::try_from((2 * u32::from(s[i]) + u32::from(p[i])) / 3).unwrap();
         assert_eq!(mixed, [mean(0), mean(1), mean(2), mean(3)]);
         // Hidden effects and types without bubbles do not count.
-        assert_eq!(bubble_colour(&[weak, poison.with_visible(false)]), Some(s));
+        assert_eq!(bubble_colour(&[weak, poison.without_particles()]), Some(s));
         let darkness = Type::Darkness.instance();
         assert_eq!(bubble_colour(&[darkness]), None);
-        assert!(is_only_ambient(&[weak.with_ambient(true), darkness]));
-        assert!(!is_only_ambient(&[weak.with_ambient(true), poison]));
+        assert!(is_only_ambient(&[weak.ambient(), darkness]));
+        assert!(!is_only_ambient(&[weak.ambient(), poison]));
     }
 
     /// An infinite instance outlasts any finite one of the same level whatever its counter holds,
@@ -592,10 +602,7 @@ mod tests {
     #[test]
     fn an_infinite_instance_outlasts_a_finite_one() {
         let finite = Type::Speed.instance().with_duration_ticks(9600);
-        let infinite = Type::Speed
-            .instance()
-            .with_duration_ticks(100)
-            .with_infinite(true);
+        let infinite = Type::Speed.instance().with_duration_ticks(100).infinite();
         assert!(infinite.can_replace(finite));
         assert!(!finite.can_replace(infinite));
         assert!(infinite.can_replace(infinite));

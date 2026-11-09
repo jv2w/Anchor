@@ -10,6 +10,7 @@ use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::permission::{self, BanEntry};
 use crate::tick::Context;
 use crate::tick::command::Refusal;
+use crate::tick::queue::SessionId;
 
 /// The success line of `/ban`.
 const BAN_SUCCESS: Msg = Msg::client("commands.ban.success");
@@ -171,8 +172,11 @@ fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
         (ip, Some(name))
     };
     let at_address: Vec<_> = cx
-        .players()
-        .filter(|p| p.identity.address == Some(ip))
+        .state
+        .addresses
+        .range((ip, SessionId::new(0))..)
+        .take_while(|(at, _)| *at == ip)
+        .filter_map(|&(_, session)| cx.player(crate::player::Id::new(session)))
         .map(crate::player::Player::id)
         .collect();
     has_room(cx, at_address.len())?;
@@ -262,7 +266,7 @@ fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 /// kicks the online players it leaves out; removing a player kicks it unless it is an operator.
 /// Each action has its own permission. The whitelist is kept in the server file, so there is no
 /// `reload`. `on` and `off` last until the server stops
-/// (`white-list` decides at start). `list` shows at most [`MAX_LISTED`] names.
+/// (`whitelist` decides at start). `list` shows at most [`MAX_LISTED`] names.
 fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let needed = match args.string("action") {
         Some("on") => permission::COMMAND_WHITELIST_ENABLE,

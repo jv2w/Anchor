@@ -241,7 +241,7 @@ impl Context<'_> {
         for packet in block_data(kind, &title, pos, second.map(|(pos, _)| pos)) {
             p.send_packet(packet);
         }
-        p.inventory.window = Some(Window::new(WindowKind::Menu { pos, kind }, 0));
+        p.inventory.window = Some(Window::new(WindowKind::Menu { pos, kind }, None));
         p.inventory.menu = Some(Open {
             id,
             stacks,
@@ -283,7 +283,7 @@ impl Context<'_> {
             return Ok(());
         }
         // `None` while the window waits to open: it opens with the new stack.
-        let Some(window_id) = inv.window.as_ref().filter(|w| w.id != 0).map(|w| w.id) else {
+        let Some(window_id) = inv.window.as_ref().and_then(|w| w.id) else {
             *there = stack;
             return Ok(());
         };
@@ -409,7 +409,7 @@ pub(in crate::tick) fn tick(state: &mut State) {
         };
         if is_far(p.position, pos) {
             far.push((session, open.id));
-        } else if window.id == 0 && p.inventory.pending_close.is_none() && open.ready <= tick {
+        } else if window.id.is_none() && p.inventory.pending_close.is_none() && open.ready <= tick {
             ready.push(session);
         }
         true
@@ -487,8 +487,10 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
     let Some(inv) = state.players.get(&session).map(|p| &p.inventory) else {
         return Touch::Nothing;
     };
-    let (Some(open), Some(window)) = (inv.menu.as_ref(), inv.window.as_ref().filter(|w| w.id != 0))
-    else {
+    let (Some(open), Some(window)) = (
+        inv.menu.as_ref(),
+        inv.window.as_ref().filter(|w| w.id.is_some()),
+    ) else {
         return Touch::Nothing;
     };
     let mut touch = Touch::Nothing;

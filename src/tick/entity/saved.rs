@@ -26,7 +26,8 @@
 //!   `BlockTargetZ` (ints);
 //! - firework rockets are never saved;
 //! - clouds: `SpawnTick` (minus the cloud's age: the world clock is not at hand here, and only
-//!   the difference is read back), `PotionId`, `Duration`, `DurationOnUse`, `PickupCount`,
+//!   the difference is read back), `PotionId` (always water's 0: a cloud keeps no potion, so one
+//!   saved with another stays as saved), `Duration`, `DurationOnUse`, `PickupCount`,
 //!   `ReapplicationDelay`, `InitialRadius`, `Radius`, `RadiusChangeOnPickup`, `RadiusOnUse`,
 //!   `RadiusPerTick` and, with effects, `mobEffects`;
 //! - NPCs: `Health` (float), `Invulnerable` (byte) and, when not empty, `AnchorData` (the user's
@@ -34,8 +35,8 @@
 //!   list of one [`Stack::to_nbt`]); villagers `Profession` (int), `Offers` (the offer list,
 //!   [`Offers::to_nbt`]) and Bedrock's `IsBaby` (byte); zombies `IsBaby`; human NPCs their name as
 //!   the name tag and, with a skin, a `Skin` compound (`Name`, `Data`, `CapeData`,
-//!   `GeometryName`, `GeometryData`; a skin that does not pass [`Skin`]'s checks loads as the
-//!   default skin);
+//!   `GeometryName`, `GeometryData`; one with a skin that does not pass [`Skin`]'s checks is no
+//!   entity and stays as saved);
 //! - custom entities: the type's identifier and the NPC keys. One whose type the server does not
 //!   register is not an entity here (like an unknown block) and stays as saved.
 //!
@@ -434,7 +435,7 @@ fn load_kind(
             },
             underwater: matches!(c.get("AllowUnderwater"), Some(Value::Byte(b)) if *b != 0),
         }),
-        "minecraft:arrow" => load_projectile(c, Shot::Arrow(load_arrow(c)))?,
+        "minecraft:arrow" => load_projectile(c, Shot::Arrow(load_arrow(c)?))?,
         "minecraft:snowball" => load_projectile(c, Shot::Snowball)?,
         "minecraft:egg" => load_projectile(c, Shot::Egg)?,
         "minecraft:ender_pearl" => load_projectile(c, Shot::EnderPearl)?,
@@ -457,7 +458,7 @@ fn load_kind(
                 },
                 // The trade module bounds and checks the offers it reads.
                 offers: match c.get("Offers") {
-                    Some(Value::Compound(offers)) => Offers::from_nbt(offers, content),
+                    Some(Value::Compound(offers)) => Offers::from_nbt(offers, content)?,
                     Some(_) => return None,
                     None => Offers::default(),
                 },
@@ -471,8 +472,9 @@ fn load_kind(
             Form::Human {
                 uuid: Uuid::from_bytes([0; 16]),
                 skin: match c.get("Skin") {
-                    Some(Value::Compound(skin)) => load_skin(skin).map(Arc::new),
-                    _ => None,
+                    Some(Value::Compound(skin)) => Some(Arc::new(load_skin(skin)?)),
+                    Some(_) => return None,
+                    None => None,
                 },
             },
             content,
@@ -501,8 +503,7 @@ fn save_skin(skin: &Skin) -> Compound {
     ])
 }
 
-/// The skin of a saved `Skin` compound; `None` (the default skin) when it does not pass
-/// [`Skin`]'s checks.
+/// The skin of a saved `Skin` compound; `None` when it does not pass [`Skin`]'s checks.
 fn load_skin(c: &Compound) -> Option<Skin> {
     let bytes = |k: &str| match c.get(k) {
         Some(Value::ByteArray(b)) => Some(b.clone()),
@@ -660,79 +661,86 @@ fn load_crystal(c: &Compound) -> Crystal {
     }
 }
 
-/// An arrow's keys.
-fn load_arrow(c: &Compound) -> Arrow {
+/// An arrow's keys; `None` for a `life` outside 0 to [`Arrow::MAX_LIFE`].
+fn load_arrow(c: &Compound) -> Option<Arrow> {
     let byte = |k: &str| match c.get(k) {
         Some(Value::Byte(b)) => Some(*b),
         _ => None,
     };
-    Arrow {
+    Some(Arrow {
         critical: byte("crit") == Some(1),
         pickup: byte("pickup").map_or(ArrowPickup::Any, ArrowPickup::from_byte),
         punch: byte("punch").unwrap_or(0),
         life: match c.get("life") {
-            Some(Value::Short(l)) => (*l).clamp(0, Arrow::MAX_LIFE),
-            _ => 0,
+            Some(Value::Short(l)) if (0..=Arrow::MAX_LIFE).contains(l) => *l,
+            Some(_) => return None,
+            None => 0,
         },
-    }
+    })
 }
 
 /// A potion's `PotionId`; water when missing.
 fn potion(c: &Compound, linger: bool) -> Option<Shot> {
     let potion = match c.get("PotionId") {
-        Some(Value::Short(id)) => Potion::from_id(i32::from(*id))?,
+        Some(Value::Short(id)) => Potion::from_id(u8::try_from(*id).ok()?)?,
         _ => Potion::from_id(0)?,
     };
     Some(Shot::Potion { potion, linger })
 }
 
-/// A cloud's keys, with every number bounded.
+/// A cloud's keys; `None` for a key outside what a cloud holds: a number out of its range, an
+/// effect [`effect::Instance::from_nbt`] refuses, more than [`Cloud::MAX_EFFECTS`] effects, or a
+/// `PotionId` other than water's 0, which the cloud would not keep.
 fn load_cloud(c: &Compound) -> Option<Cloud> {
-    let int = |k: &str, default: i32| match c.get(k) {
-        Some(Value::Int(v)) => *v,
-        _ => default,
+    let int = |k: &str, default: i32, low: i32| match c.get(k) {
+        Some(Value::Int(v)) => Some(*v).filter(|v| (low..=Cloud::MAX_AGE_TICKS).contains(v)),
+        Some(_) => None,
+        None => Some(default),
     };
     let float = |k: &str, default: f64| match c.get(k) {
-        Some(Value::Float(v)) if v.is_finite() => {
-            crate::math::clamp(f64::from(*v), -Cloud::MAX_RADIUS, Cloud::MAX_RADIUS)
-        }
-        _ => default,
+        Some(Value::Float(v)) => Some(f64::from(*v))
+            .filter(|v| v.is_finite() && (-Cloud::MAX_RADIUS..=Cloud::MAX_RADIUS).contains(v)),
+        Some(_) => None,
+        None => Some(default),
     };
-    let age = match c.get("SpawnTick") {
-        Some(Value::Long(t)) => {
-            u32::try_from(t.saturating_neg().clamp(0, i64::from(Cloud::MAX_AGE_TICKS))).unwrap_or(0)
-        }
-        _ => 0,
-    };
-    let mut effects = Vec::new();
-    match c.get("mobEffects") {
-        Some(Value::List(List::Compound(list))) => {
-            effects.extend(
-                list.iter()
-                    .take(Cloud::MAX_EFFECTS)
-                    .filter_map(effect::Instance::from_nbt),
-            );
-        }
-        Some(Value::List(List::End)) | None => {}
+    match c.get("PotionId") {
+        Some(Value::Short(0)) | None => {}
         Some(_) => return None,
     }
-    let initial_radius = float("InitialRadius", Cloud::DEFAULT_RADIUS);
+    let age = match c.get("SpawnTick") {
+        Some(Value::Long(t)) => u32::try_from(t.checked_neg()?).ok()?,
+        Some(_) => return None,
+        None => 0,
+    };
+    let effects = match c.get("mobEffects") {
+        Some(Value::List(List::Compound(list))) if list.len() <= Cloud::MAX_EFFECTS => list
+            .iter()
+            .map(effect::Instance::from_nbt)
+            .collect::<Option<Vec<_>>>()?,
+        Some(Value::List(List::End)) | None => Vec::new(),
+        Some(_) => return None,
+    };
+    let initial_radius = float("InitialRadius", Cloud::DEFAULT_RADIUS)?;
     Some(Cloud {
         effects,
         age,
-        max_age: int("Duration", Cloud::DEFAULT_MAX_AGE_TICKS).clamp(0, Cloud::MAX_AGE_TICKS),
-        max_age_on_use: int("DurationOnUse", 0).clamp(-Cloud::MAX_AGE_TICKS, Cloud::MAX_AGE_TICKS),
+        max_age: int("Duration", Cloud::DEFAULT_MAX_AGE_TICKS, 0)?,
+        max_age_on_use: int("DurationOnUse", 0, -Cloud::MAX_AGE_TICKS)?,
         reapplication_delay: int(
             "ReapplicationDelay",
             Cloud::DEFAULT_REAPPLICATION_DELAY_TICKS,
-        )
-        .clamp(0, Cloud::MAX_AGE_TICKS),
-        pickup_count: int("PickupCount", 0),
+            0,
+        )?,
+        pickup_count: match c.get("PickupCount") {
+            Some(Value::Int(n)) => *n,
+            Some(_) => return None,
+            None => 0,
+        },
         initial_radius,
-        radius: float("Radius", initial_radius),
-        radius_on_pickup: float("RadiusChangeOnPickup", Cloud::DEFAULT_RADIUS_ON_USE),
-        radius_on_use: float("RadiusOnUse", Cloud::DEFAULT_RADIUS_ON_USE),
-        radius_per_tick: float("RadiusPerTick", Cloud::DEFAULT_RADIUS_PER_TICK),
+        radius: float("Radius", initial_radius)?,
+        radius_on_pickup: float("RadiusChangeOnPickup", Cloud::DEFAULT_RADIUS_ON_USE)?,
+        radius_on_use: float("RadiusOnUse", Cloud::DEFAULT_RADIUS_ON_USE)?,
+        radius_per_tick: float("RadiusPerTick", Cloud::DEFAULT_RADIUS_PER_TICK)?,
         victims: BTreeMap::new(),
     })
 }
@@ -1029,7 +1037,8 @@ pub(super) mod tests {
                             Value::List(crate::nbt::List::Compound(vec![offer(0), offer(1)])),
                         )]),
                         &crate::custom::Registry::default(),
-                    ),
+                    )
+                    .expect("the offers read"),
                     baby: true,
                 },
                 invulnerable: true,
@@ -1190,7 +1199,7 @@ pub(super) mod tests {
         let speed = effect::Instance::new(effect::Type::Speed, 0, 1, true, false);
         cloud.effects = vec![
             speed
-                .with_infinite(true)
+                .infinite()
                 .with_duration_ticks(effect::MAX_DURATION_TICKS),
             speed.with_duration_ticks(2_000_000),
         ];
@@ -1400,6 +1409,69 @@ pub(super) mod tests {
         let mut bad = npc;
         bad.insert("Profession".to_owned(), Value::Int(1000));
         assert!(load_without_custom(&bad, ChunkPos::new(0, -1)).is_none());
+    }
+
+    /// A saved cloud, arrow or human NPC with a value it cannot hold is no entity here and stays
+    /// as saved, rather than loading with the value cut or dropped.
+    #[test]
+    fn saved_values_an_entity_cannot_hold_keep_the_compound_as_saved() {
+        let at = Vec3::new(5.25, -59.5, -3.75);
+        let chunk = ChunkPos::new(0, -1);
+        let saved_of = |pick: fn(&Kind) -> bool| {
+            save(&entity(
+                kinds().into_iter().find(pick).expect("the kind"),
+                at,
+            ))
+        };
+        let refused = |good: &Compound, key: &str, value: Value| {
+            let mut bad = good.clone();
+            bad.insert(key.to_owned(), value);
+            load_without_custom(&bad, chunk).is_none()
+        };
+        let cloud = saved_of(|k| matches!(k, Kind::Cloud(_)));
+        assert!(load_without_custom(&cloud, chunk).is_some());
+        let speed = effect::Instance::new(effect::Type::Speed, 0, 1, true, false).to_nbt();
+        for (key, value) in [
+            ("Radius", Value::Float(100.0)),
+            ("RadiusPerTick", Value::Float(f32::NAN)),
+            ("Duration", Value::Int(-1)),
+            ("DurationOnUse", Value::Int(30_000)),
+            ("ReapplicationDelay", Value::Int(30_000)),
+            ("SpawnTick", Value::Long(5)),
+            ("PotionId", Value::Short(5)),
+            (
+                "mobEffects",
+                Value::List(List::Compound(vec![Compound::new()])),
+            ),
+            (
+                "mobEffects",
+                Value::List(List::Compound(vec![speed; Cloud::MAX_EFFECTS + 1])),
+            ),
+        ] {
+            assert!(refused(&cloud, key, value), "{key}");
+        }
+        let arrow = saved_of(|k| {
+            matches!(
+                k,
+                Kind::Projectile(Projectile {
+                    shot: Shot::Arrow(_),
+                    ..
+                })
+            )
+        });
+        assert!(load_without_custom(&arrow, chunk).is_some());
+        assert!(refused(&arrow, "life", Value::Short(-1)));
+        let human = saved_of(|k| {
+            matches!(
+                k,
+                Kind::Npc(Character {
+                    form: Form::Human { .. },
+                    ..
+                })
+            )
+        });
+        assert!(load_without_custom(&human, chunk).is_some());
+        assert!(refused(&human, "Skin", Value::Compound(Compound::new())));
     }
 
     /// An entity whose name tag is off loads with it off, with or without a name tag.

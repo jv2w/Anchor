@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio::{pin, select};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use super::packs::{self, CHUNK_ALLOWANCE, CHUNK_INTERVAL, MAX_UNDELIVERED_BYTES, Reply, Transfer};
 use super::transport::{self, Transport};
@@ -426,7 +426,7 @@ impl Session {
         self.check_protocol(client_protocol).await?;
         let settings = self.shared.batch;
         self.send(&[Packet::NetworkSettings(NetworkSettings {
-            compression_threshold: settings.threshold(),
+            compression_threshold: settings.threshold_bytes(),
             compression_algorithm: settings.compression().network_id(),
             ..NetworkSettings::default()
         })])
@@ -461,6 +461,19 @@ impl Session {
             // Counted before decoding, so packets dropped below count as their bytes do.
             if !self.packets.take(1, PACKET_RATE, now) {
                 return Err(Error::Limit("input packets per second"));
+            }
+            // Split screen is not supported: a sub-client's packet would act as the main
+            // player's. After the join it is dropped; before, it breaks the login sequence.
+            if header.sender_sub_client != 0 {
+                if self.stage != Stage::Joined {
+                    return Err(Error::Order("sub-client packet before the join"));
+                }
+                trace!(
+                    session = self.id.get(),
+                    id = header.id,
+                    "sub-client packet dropped"
+                );
+                continue;
             }
             let left = budget;
             // Only what clients send decodes (gophertunnel's client packet pool): a packet only
@@ -1589,6 +1602,32 @@ mod tests {
             player.spawned = false;
             let ended = player.on_message(set_time).await;
             assert!(matches!(ended, Err(Error::Packet(_))), "{ended:?}");
+        });
+    }
+
+    /// A split-screen sub-client's packet never reaches the tick, where it would act as the main
+    /// player's: after the join it is dropped, before the join it ends the session.
+    #[test]
+    fn a_sub_client_packet_never_reaches_the_tick() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            // An uncompressed batch of SetLocalPlayerAsInitialised(0) from sub-client 1: the
+            // header 0x71 | 1 << 10 as a varuint32.
+            let from_sub_client = vec![0xff, 0x03, 0xf1, 0x08, 0x00];
+            player
+                .on_message(from_sub_client.clone())
+                .await
+                .expect("the packet is dropped");
+            let mut forwarded = 0;
+            while let Ok(input) = queue.try_recv() {
+                forwarded += usize::from(matches!(input.kind, InputKind::Packet { .. }));
+            }
+            assert_eq!(forwarded, 0);
+            player.stage = Stage::Packs;
+            let ended = player.on_message(from_sub_client).await;
+            assert!(matches!(ended, Err(Error::Order(_))), "{ended:?}");
         });
     }
 

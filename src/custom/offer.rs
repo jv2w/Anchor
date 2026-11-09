@@ -127,7 +127,7 @@ impl Offer {
     /// The same offer taking its payments of any damage (worn tools, any meta), as the official
     /// server's offers carry `Damage` 32767.
     #[must_use]
-    pub fn with_any_damage(mut self) -> Self {
+    pub fn any_damage(mut self) -> Self {
         self.any_damage = true;
         self
     }

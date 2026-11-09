@@ -6,6 +6,11 @@ use std::str::FromStr;
 
 use super::io::{Codec, Error, Reader, Result, Writer};
 
+/// The error for a bit index past a bitset's end.
+const BITSET_INDEX_PAST_END: Error = Error::InvalidValue {
+    field: "bitset",
+    reason: "bit index past its size",
+};
 /// The error for a bitset with more bits than its size.
 const BITSET_TOO_MANY_BITS: Error = Error::InvalidValue {
     field: "bitset",
@@ -184,15 +189,19 @@ impl Bitset {
 
     /// Sets bit `index`.
     ///
-    /// Returns `false`, changing nothing, if `index` is past the end.
-    pub fn set(&mut self, index: usize) -> bool {
+    /// # Errors
+    ///
+    /// [`Error::InvalidValue`] for an `index` past the end, changing nothing.
+    pub fn set(&mut self, index: usize) -> Result<()> {
         self.update(index, |w, mask| w | mask)
     }
 
     /// Clears bit `index`.
     ///
-    /// Returns `false`, changing nothing, if `index` is past the end.
-    pub fn unset(&mut self, index: usize) -> bool {
+    /// # Errors
+    ///
+    /// [`Error::InvalidValue`] for an `index` past the end, changing nothing.
+    pub fn unset(&mut self, index: usize) -> Result<()> {
         self.update(index, |w, mask| w & !mask)
     }
 
@@ -211,16 +220,16 @@ impl Bitset {
         (0..7).fold(0, |acc, i| acc | (u8::from(self.get(start + i)) << i))
     }
 
-    /// Applies `f` to the word of bit `index`, returning whether `index` is inside the bitset.
+    /// Applies `f` to the word of bit `index`; an error for an `index` past the end.
     ///
     /// `f` takes the word and the mask of the bit.
-    fn update(&mut self, index: usize, f: impl FnOnce(u64, u64) -> u64) -> bool {
+    fn update(&mut self, index: usize, f: impl FnOnce(u64, u64) -> u64) -> Result<()> {
         let len = self.len;
         let Some(word) = self.words.get_mut(index / 64).filter(|_| index < len) else {
-            return false;
+            return Err(BITSET_INDEX_PAST_END);
         };
         *word = f(*word, 1 << (index % 64));
-        true
+        Ok(())
     }
 }
 
@@ -243,7 +252,7 @@ impl Reader<'_> {
             }
             for i in 0..7 {
                 if (b >> i) & 1 == 1 {
-                    x.set(start + i);
+                    x.set(start + i)?;
                 }
             }
             if b & 0x80 == 0 {
@@ -589,10 +598,13 @@ mod tests {
         let size = 131;
         let mut x = Bitset::new(size);
         assert_eq!(encoded(|w| w.bitset(&x, size).unwrap()), [0]);
-        assert!(x.set(7));
+        x.set(7).unwrap();
         assert_eq!(encoded(|w| w.bitset(&x, size).unwrap()), [0x80, 0x01]);
-        assert!(x.set(0) && x.set(130) && x.unset(7));
-        assert!(!x.set(131));
+        x.set(0).unwrap();
+        x.set(130).unwrap();
+        x.unset(7).unwrap();
+        assert_eq!(x.set(131), Err(BITSET_INDEX_PAST_END));
+        assert_eq!(x.unset(131), Err(BITSET_INDEX_PAST_END));
         let bytes = encoded(|w| w.bitset(&x, size).unwrap());
         assert_eq!(bytes.len(), 19);
         let got = Reader::new(&bytes, 64, 0).bitset(size).unwrap();
@@ -613,7 +625,7 @@ mod tests {
     #[test]
     fn mutated_input_never_panics() {
         let mut x = Bitset::new(131);
-        x.set(100);
+        x.set(100).unwrap();
         let seed = encoded(|w| {
             w.uuid(Uuid::from_bytes([9; 16]));
             w.sound_pos([1.0, 2.0, 3.0]);

@@ -30,6 +30,8 @@ const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self")
 const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
 /// What a player sees when `/give` gives it items.
 const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
+/// The failure line of `/kill` for a player that does not die.
+const KILL_FAILURE: Msg = Msg::own("{%0} cannot be killed");
 /// The success line of `/kill`.
 const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
 /// The longest `/give` amount.
@@ -274,15 +276,17 @@ fn give(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 }
 
 /// Kills the players with the generic death; the sender when no target is given
-/// (`/kill [target]`). Operators only.
+/// (`/kill [target]`). A player that does not die (creative, already dead) is a failure.
+/// Operators only.
 fn kill(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let operators = permission::COMMAND_KILL;
     let targets = permitted_targets(cx, *sender, args, "target", (operators, operators), "kill")?;
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
-        if let Some(p) = cx.player_mut(id) {
-            p.kill();
+        if !cx.player_mut(id).is_some_and(Player::kill) {
+            results.add(Err(KILL_FAILURE.error(&[&name])));
+            continue;
         }
         results.add(Ok(if Sender::Player(id) == *sender {
             KILL_SUCCESSFUL.output(&[&name])

@@ -30,6 +30,7 @@
 //!   stored value at the next commit.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::view::Key;
 use crate::nbt::Compound;
@@ -151,7 +152,7 @@ impl Extras {
     pub(super) fn take_dirty(
         &mut self,
         world: WorldIndex,
-    ) -> Vec<(ChunkPos, ChunkKind, Vec<Compound>)> {
+    ) -> Vec<(ChunkPos, ChunkKind, Arc<Vec<Compound>>)> {
         let first = (world, ChunkPos::new(i32::MIN, i32::MIN));
         let last = (world, ChunkPos::new(i32::MAX, i32::MAX));
         let keys: Vec<Key> = self.dirty.range(first..=last).copied().collect();
@@ -243,12 +244,13 @@ impl Held {
         Ok(Self { extras, dirty })
     }
 
-    /// Takes the changed lists, cloned for a snapshot, and clears their marks.
-    pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Vec<Compound>)> {
+    /// Takes the changed lists, shared with a snapshot ([`ChunkExtras::share`]), and clears their
+    /// marks.
+    pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Arc<Vec<Compound>>)> {
         let mut out = Vec::new();
         for kind in ChunkKind::EXTRAS {
             if self.dirty & bit(kind) != 0 {
-                out.push((kind, self.extras.get(kind).to_vec()));
+                out.push((kind, self.extras.share(kind)));
             }
         }
         self.dirty = 0;
@@ -514,7 +516,7 @@ pub(super) mod tests {
             .push(added.clone());
         assert_eq!(
             extras.take_dirty(0),
-            [(far.1, ChunkKind::Entities, vec![added.clone()])]
+            [(far.1, ChunkKind::Entities, Arc::new(vec![added.clone()]))]
         );
         assert!(extras.take_dirty(0).is_empty(), "the marks were cleared");
         // A changed chunk that unloads takes its marks along, and coming back brings them again.
@@ -524,7 +526,7 @@ pub(super) mod tests {
         extras.chunk_restored(other, held);
         assert_eq!(
             extras.take_dirty(1),
-            [(other.1, ChunkKind::BlockEntities, vec![added])]
+            [(other.1, ChunkKind::BlockEntities, Arc::new(vec![added]))]
         );
     }
 

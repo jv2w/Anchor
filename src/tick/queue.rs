@@ -221,19 +221,15 @@ impl Client {
             port,
             join_time_ms,
         } = self;
-        for text in [
-            locale,
-            device_model,
-            device_id,
-            self_signed_id,
-            playfab_id,
-            game_version,
-            server_address,
-        ] {
+        h.bytes(locale.as_bytes());
+        h.u64(u64::from(u32::from(*input_mode)));
+        for text in [device_model, device_id, self_signed_id] {
             h.bytes(text.as_bytes());
         }
-        h.u64(u64::from(u32::from(*input_mode)));
         h.u64(random_id.cast_unsigned());
+        for text in [playfab_id, game_version, server_address] {
+            h.bytes(text.as_bytes());
+        }
         h.u64(u64::from(*port));
         h.u64(join_time_ms.cast_unsigned());
     }

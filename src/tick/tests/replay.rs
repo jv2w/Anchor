@@ -28,7 +28,7 @@ use crate::tick::queue::{
 };
 use crate::tick::{
     Fingerprints, InputLog, Output, Phase, SaveLink, Settings, Setup, Shared, State, Tasks,
-    boundary, deliver, run, step, write_crash_log,
+    boundary, deliver, flush, run, step, write_crash_log,
 };
 use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Kind};
 
@@ -503,6 +503,7 @@ fn held_commit(dir: &Path, plan: Plan, ticks: u64, held: u64) -> (PathBuf, Hashe
         );
         deliver(&mut state, &mut output, &mut log);
         boundary(&mut state, &mut output, &mut log);
+        flush(&mut state, &pool, &mut output);
         if log.needs_checkpoint() {
             log.set_checkpoint(state.checkpoint(&pool));
         }
@@ -693,10 +694,10 @@ fn tour_fixture(world: &crate::world::World) -> crate::save::Snapshot {
             snapshot.chunks.push((0, pos, terrain));
             snapshot
                 .extras
-                .push((0, pos, ChunkKind::BlockEntities, block_entities));
+                .push((0, pos, ChunkKind::BlockEntities, Arc::new(block_entities)));
             snapshot
                 .extras
-                .push((0, pos, ChunkKind::Entities, entities));
+                .push((0, pos, ChunkKind::Entities, Arc::new(entities)));
         }
     }
     snapshot
@@ -807,6 +808,7 @@ fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
         );
         deliver(&mut state, &mut output, &mut log);
         boundary(&mut state, &mut output, &mut log);
+        flush(&mut state, &pool, &mut output);
         if log.needs_checkpoint() {
             log.set_checkpoint(state.checkpoint(&pool));
         }

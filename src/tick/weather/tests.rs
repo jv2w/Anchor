@@ -468,7 +468,7 @@ fn bolts_over_the_limit_are_refused_and_all_go_with_their_removal() {
 
 /// A strike at `at` in the default world of a server with player 1 at the spawn and a zombie
 /// 2 blocks and one 8 blocks from it: the player's health and fire ticks, and each zombie's.
-fn struck(lightning: Lightning) -> ((f64, u32), [(f64, u16); 2]) {
+fn struck(lightning: Lightning) -> ((f64, u32), [(f64, u32); 2]) {
     let (mut state, mut output, _rx) = spawned([1]);
     let feet = spawn_feet(&state, 0);
     let mut c = cx(&mut state);

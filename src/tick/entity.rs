@@ -831,7 +831,7 @@ super::checkpoint::fields!(Entity {
 #[derive(Debug, Default)]
 struct Slot {
     /// The generation of the slot's current or next entity.
-    generation: u32,
+    generation: u64,
     entity: Option<Entity>,
 }
 
@@ -935,7 +935,7 @@ pub(super) struct Entities {
     free: BTreeSet<u32>,
     /// The first generation of a slot added at the end: above every generation a slot removed
     /// from the end had, so an `Id` of a removed slot never matches again.
-    retired: u32,
+    retired: u64,
     /// Live entities per world.
     counts: BTreeMap<WorldIndex, usize>,
     /// The chunk index: every live entity is in the column of its chunk.
@@ -1114,7 +1114,7 @@ impl Entities {
         } = self;
         h.usize(slots.len());
         for s in slots {
-            h.u64(u64::from(s.generation));
+            h.u64(s.generation);
             match &s.entity {
                 Some(e) => e.hash_into(h),
                 None => h.u64(u64::MAX),
@@ -1124,7 +1124,7 @@ impl Entities {
         for &f in free {
             h.u64(u64::from(f));
         }
-        h.u64(u64::from(*retired));
+        h.u64(*retired);
         for (&w, &n) in counts {
             h.usize(w);
             h.usize(n);
@@ -2330,10 +2330,7 @@ fn broken_by(state: &mut State, id: Id, source: DamageSource) {
         return;
     };
     let infinite = state.players.get(&p.session()).is_some_and(|player| {
-        matches!(
-            survival::game_mode(state, player),
-            GameMode::Creative | GameMode::Spectator
-        )
+        matches!(player.game_mode(), GameMode::Creative | GameMode::Spectator)
     });
     if infinite
         && let Some(e) = state.rules.entities.get_mut(id)
@@ -2453,10 +2450,7 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
     let (mut drops, mut xp) = (Vec::new(), 0);
     if zombie {
         let seed = state.worlds.get(world).map_or(0, World::seed);
-        let key = random::key(
-            DEATH_RANDOM,
-            &[u64::from(id.index()), u64::from(id.generation())],
-        );
+        let key = random::key(DEATH_RANDOM, &[u64::from(id.index()), id.generation()]);
         drops = zombie_drops(&mut Random::new(seed, state.tick, key));
         if state.settings.has_orbs() {
             xp = ZOMBIE_XP;
@@ -3028,7 +3022,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let valid = |s: &SessionId| {
         state.players.get(s).filter(|p| {
             p.world == world
-                && can_collect(state, p, hooks)
+                && can_collect(p, hooks)
                 && p.can_attract_xp_orbs()
                 && survival::feet(p).distance_squared(position) <= reach
         })
@@ -3101,7 +3095,7 @@ fn each_player_in(
     mut f: impl FnMut(SessionId, &Player),
 ) {
     let wanted = |p: &Player| {
-        is_targetable(state, p, world, hooks) && survival::bounding_box(p).overlaps(area, EPSILON)
+        is_targetable(p, world, hooks) && survival::bounding_box(p).overlaps(area, EPSILON)
     };
     let entities = &state.rules.entities;
     let margin = Vec3::new(1.0, 0.0, 1.0);
@@ -3168,8 +3162,8 @@ fn each_player_in(
 
 /// Whether projectiles, potions, clouds and explosions reach a player: alive and not a
 /// spectator, in `world`.
-fn is_targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
-    player.world == world && can_collect(state, player, hooks)
+fn is_targetable(player: &Player, world: WorldIndex, hooks: Hooks) -> bool {
+    player.world == world && can_collect(player, hooks)
 }
 
 /// Ticks a falling block: on the ground it is placed where it is if that block can be
@@ -3505,15 +3499,18 @@ fn is_spawn_heard(state: &State) -> bool {
 /// Lets players pick up the items they touch: what fits goes to the inventory; a stack taken whole is
 /// shown taken (`TakeItemActor`, then `RemoveActor`), a part leaves the rest on the ground.
 /// Stuck arrows are picked up by the rules of [`projectile::pick_up`]. A player looks once
-/// every `item-pickup-interval` ticks, on the ticks its session number staggers it to, so the
+/// every `item-pickup-interval-ticks`, on the ticks its session number staggers it to, so the
 /// players' looks spread over the interval.
 fn pick_up(state: &mut State, hooks: Hooks) {
-    let (tick, interval) = (state.tick, u64::from(state.settings.item_pickup_interval));
+    let (tick, interval) = (
+        state.tick,
+        u64::from(state.settings.item_pickup_interval_ticks),
+    );
     let sessions: Vec<SessionId> = state
         .players
         .iter()
         .filter(|(s, p)| {
-            tick.wrapping_add(s.get()).is_multiple_of(interval) && can_collect(state, p, hooks)
+            tick.wrapping_add(s.get()).is_multiple_of(interval) && can_collect(p, hooks)
         })
         .map(|(&s, _)| s)
         .collect();
@@ -3592,7 +3589,7 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
         let player = state.players.get(&session)?;
         let reach = survival::bounding_box(player).grow(PICKUP_REACH);
         if item.pickup_delay_ticks != 0
-            || !can_collect(state, player, hooks)
+            || !can_collect(player, hooks)
             || player.world != e.world
             || !e.bounding_box().overlaps(reach, EPSILON)
         {
@@ -3664,10 +3661,10 @@ fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
 }
 
 /// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator.
-fn can_collect(state: &State, player: &Player, hooks: Hooks) -> bool {
+fn can_collect(player: &Player, hooks: Hooks) -> bool {
     player.phase == Phase::Spawned
         && (hooks.is_alive)(player)
-        && survival::game_mode(state, player) != GameMode::Spectator
+        && player.game_mode() != GameMode::Spectator
 }
 
 /// Raises [`EntityItemPickup`] for `session` picking up `origin` with `offered`: the event to
@@ -4019,7 +4016,7 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
             off_hand: inv.offhand().clone(),
             armor: inv.armor().clone(),
         };
-        let game_mode = survival::game_mode(state, target);
+        let game_mode = target.game_mode();
         // Built only for a tick that has a new viewer.
         let mut add = None;
         for &s in &now.viewers {
@@ -4593,7 +4590,7 @@ fn hash_key(h: &mut super::Fnv, (w, p): Key) {
 #[cfg(test)]
 fn hash_id(h: &mut super::Fnv, id: Id) {
     h.u64(u64::from(id.index()));
-    h.u64(u64::from(id.generation()));
+    h.u64(id.generation());
 }
 
 #[cfg(test)]
@@ -5122,12 +5119,12 @@ mod tests {
         assert_eq!(delay(&h), None, "despawned");
     }
 
-    /// `item-pickup-interval`: a player looks for items only every that many ticks, on the
+    /// `item-pickup-interval-ticks`: a player looks for items only every that many ticks, on the
     /// ticks its session number staggers it to.
     #[test]
     fn players_pick_up_items_only_every_item_pickup_interval_ticks() {
         let mut h = Harness::with_config(1, Listeners::default(), |c| {
-            c.developer.item_pickup_interval = 5;
+            c.developer.item_pickup_interval_ticks = 5;
         });
         h.spawn(1, standing(0.0, 0.0));
         room(64);
@@ -5358,7 +5355,7 @@ mod tests {
     fn a_sneaking_or_swimming_player_picks_up_within_its_lower_box() {
         for (height_above_feet, pose) in [(2.1, "sneaking"), (1.2, "swimming")] {
             let mut h = Harness::with_config(1, Listeners::default(), |c| {
-                c.developer.item_pickup_interval = 1;
+                c.developer.item_pickup_interval_ticks = 1;
             });
             h.spawn(1, standing(0.0, 0.0));
             room(64);
@@ -6032,6 +6029,23 @@ mod tests {
         // Every viewer was told.
         let packets = h.take(1);
         assert_eq!(adds(&packets).len(), removes(&packets).len());
+    }
+
+    /// A slot's generation passes 2^32 instead of wrapping, so a removed entity's `Id` never
+    /// finds the entity that takes its slot after 2^32 removals.
+    #[test]
+    fn a_stale_id_stays_stale_past_two_to_the_thirty_two_removals() {
+        let mut h = Harness::new(1);
+        assert!(h.state.rules.entities.slots.is_empty());
+        h.state.rules.entities.retired = u32::MAX.into();
+        let pos = at(0.5, -59.0, 0.5);
+        let world = crate::world::Id::DEFAULT;
+        let old = h.context().spawn_tnt(world, pos, 80).unwrap();
+        assert!(h.state.rules.entities.take(old).is_some());
+        let new = h.context().spawn_tnt(world, pos, 80).unwrap();
+        assert_eq!(new.index(), old.index(), "the same slot");
+        assert_ne!(new, old);
+        assert!(h.state.rules.entities.get(old).is_none());
     }
 
     #[test]

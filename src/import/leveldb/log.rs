@@ -39,13 +39,12 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
     let mut assembled: Vec<u8> = Vec::new();
     let mut fragmented = false;
     let mut at = 0;
-    while at < data.len() {
+    while let Some(rest) = data.get(at..).filter(|rest| !rest.is_empty()) {
         let block_left = BLOCK_BYTES - at % BLOCK_BYTES;
         if block_left < HEADER_BYTES {
             at = at.saturating_add(block_left);
             continue;
         }
-        let rest = data.get(at..).unwrap_or_default();
         let Some((&[c0, c1, c2, c3, l0, l1, kind], _)) = rest.split_first_chunk::<HEADER_BYTES>()
         else {
             // A header cut off by the end of the file: an unfinished write.
@@ -58,14 +57,13 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
             continue;
         }
         let end = HEADER_BYTES.saturating_add(len);
-        if end > rest.len().min(block_left) {
+        let Some(payload) = rest.get(HEADER_BYTES..end).filter(|_| end <= block_left) else {
             if rest.len() < block_left {
                 // The last, partial block ends inside the record: an unfinished write.
                 return Ok(());
             }
             return Err(Error::Malformed("log record crosses a block"));
-        }
-        let payload = rest.get(HEADER_BYTES..end).unwrap_or_default();
+        };
         if masked_crc(&[&[kind], payload]) != stored {
             return Err(Error::Checksum);
         }

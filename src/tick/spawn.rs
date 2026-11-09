@@ -301,12 +301,12 @@ impl Window {
             if (p.pending.start_game || p.pending.radius.is_some_and(|r| r.first))
                 && !worlds.contains_key(&p.world)
             {
-                let w = p.world;
+                let world = super::world_api::world_at(state, p.world);
                 worlds.insert(
-                    w,
+                    p.world,
                     WorldPackets {
-                        clock_state: survival::clock_state(state, w),
-                        clock_definition: survival::clock_definition(state, w),
+                        clock_state: survival::clock_state(world),
+                        clock_definition: survival::clock_definition(world),
                     },
                 );
             }
@@ -1056,7 +1056,7 @@ fn enter(
     } else if let Some(offline) = state.saving.offline.remove(&stored) {
         // The data of a player who left is newer than the file until its commit is known.
         let dirty = offline.snapshot.is_none();
-        place(state, &mut player, Some(offline.data));
+        place(state, &mut player, Some(Arc::unwrap_or_clone(offline.data)));
         player.data_dirty = dirty;
         None
     } else {
@@ -1416,7 +1416,6 @@ pub(super) fn initialised(
     session: SessionId,
     packet: &SetLocalPlayerAsInitialised,
 ) {
-    let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1432,7 +1431,7 @@ pub(super) fn initialised(
     match player.phase {
         Phase::Spawning => {
             player.phase = Phase::Spawned;
-            survival::spawned(settings, player);
+            survival::spawned(player);
         }
         Phase::Spawned => return,
         Phase::Loading | Phase::Joined => {
@@ -2352,7 +2351,7 @@ mod tests {
             .iter()
             .map(|p| p.pattern_id.clone())
             .collect();
-        assert_eq!(patterns, list("무늬 18개("));
+        assert_eq!(patterns, list("18 patterns ("));
         for p in &trims.patterns {
             assert_eq!(
                 p.item_name,
@@ -2364,7 +2363,7 @@ mod tests {
             .iter()
             .map(|m| format!("{} {}", m.material_id, m.colour))
             .collect();
-        assert_eq!(materials, list("재료 11개("));
+        assert_eq!(materials, list("11 materials ("));
     }
 
     #[test]

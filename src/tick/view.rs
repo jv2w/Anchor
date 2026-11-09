@@ -1764,7 +1764,7 @@ pub(super) fn hold_world(state: &mut State, world: WorldIndex) {
     for pos in spawn_area(spawn.chunk()) {
         hold(&mut state.chunks, (world, pos));
     }
-    match state.chunks.spawns.get_mut(crate::save::place(world)) {
+    match state.chunks.spawns.get_mut(crate::save::list_index(world)) {
         Some(held) => *held = spawn,
         // Places are taken in order, so a new one is the next.
         None => state.chunks.spawns.push(spawn),
@@ -1790,7 +1790,7 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     for n in tickets {
         release_ticket(chunks, n);
     }
-    if let Some(&spawn) = chunks.spawns.get(crate::save::place(world)) {
+    if let Some(&spawn) = chunks.spawns.get(crate::save::list_index(world)) {
         for pos in spawn_area(spawn.chunk()) {
             release(chunks, (world, pos));
         }
@@ -1799,7 +1799,7 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     // world to move and holds nothing more for it; loading it again holds its spawn chunks
     // (`hold_world`).
     if let (Some(held), Some(now)) = (
-        chunks.spawns.get_mut(crate::save::place(world)),
+        chunks.spawns.get_mut(crate::save::list_index(world)),
         state.worlds.get(world).map(World::spawn),
     ) {
         *held = now;

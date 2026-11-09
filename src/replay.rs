@@ -378,6 +378,7 @@ impl Replayer {
                 Answer::Player { key, data } => Response::Player {
                     key: crate::storage::PlayerKey::from_text(key),
                     data: data.to_load().map_err(format)?,
+                    logged: Ok(data.clone()),
                 },
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
@@ -428,10 +429,9 @@ pub(crate) fn run(
     let mut opened = save::open_replica(&file, specs, &seeds).map_err(storage)?;
     let identity = opened.identity;
     setup.data.load(&mut opened.thread).map_err(storage)?;
-    setup.commands.start(
-        std::mem::take(&mut opened.access),
-        config.general.white_list,
-    );
+    setup
+        .commands
+        .start(std::mem::take(&mut opened.access), config.general.whitelist);
     opened
         .thread
         .set_lighting(config.developer.lighting.is_calculated());
@@ -529,7 +529,7 @@ fn read(path: &Path) -> Result<InputLog> {
 fn check_settled(data_dir: &Path) -> Result<()> {
     use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
     let main = Place::data(data_dir, MAIN_FILE).file;
-    let worlds = save::world_files(data_dir).map_err(storage)?;
+    let worlds = save::world_names(data_dir).map_err(storage)?;
     let files = std::iter::once(Place::data(data_dir, PLAYERS_FILE).file)
         .chain(worlds.iter().map(|name| Place::world(data_dir, name).file));
     for file in files {
@@ -604,7 +604,7 @@ fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayF
             .map(|(_, path)| path))
     };
     let mut worlds = BTreeMap::new();
-    for name in save::world_files(data_dir).map_err(storage)? {
+    for name in save::world_names(data_dir).map_err(storage)? {
         if let Some(path) = pick(&Place::world(data_dir, &name))? {
             worlds.insert(name, path);
         }

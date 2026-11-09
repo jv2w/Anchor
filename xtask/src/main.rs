@@ -58,7 +58,7 @@ const CHECKS: &[&[&str]] = &[
         "--lib",
         "--no-default-features",
         "--features",
-        "aws-lc-rs",
+        "aws-lc-rs,pii",
         "--config",
         STR0M_DIMPL,
         "--config",

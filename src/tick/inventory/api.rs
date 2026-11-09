@@ -281,7 +281,7 @@ impl Editor<'_> {
     #[doc(alias = "Inventory::remove")]
     #[doc(alias = "BaseInventory::remove")]
     pub fn remove_all(&mut self, stack: &Stack) {
-        let slots: Vec<usize> = self.view().all(stack).map(|(i, _)| i).collect();
+        let slots: Vec<usize> = self.view().slots_holding(stack).map(|(i, _)| i).collect();
         for i in slots {
             self.clear(i);
         }

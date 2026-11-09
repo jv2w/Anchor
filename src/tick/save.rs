@@ -11,6 +11,7 @@
 //! changes no commit holds.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use tracing::{debug, error, warn};
 
@@ -93,7 +94,8 @@ impl Unsaved {
 /// The data of a player who left before a commit held its last changes.
 #[derive(Debug)]
 pub(super) struct Offline {
-    pub(super) data: PlayerData,
+    /// Shared with the snapshot that holds it, which so copies nothing on the tick.
+    pub(super) data: Arc<PlayerData>,
     /// The snapshot that holds the data, or `None` if none does yet.
     pub(super) snapshot: Option<u64>,
 }
@@ -196,7 +198,7 @@ impl Saving {
                 world,
                 position,
                 extra,
-            } = data;
+            } = &**data;
             h.bytes(world.as_bytes());
             for c in position {
                 h.u64(c.to_bits());
@@ -270,7 +272,7 @@ pub(super) fn keep(saving: &mut Saving, key: StoredPlayer, data: PlayerData) {
     saving.offline.insert(
         key,
         Offline {
-            data,
+            data: Arc::new(data),
             snapshot: None,
         },
     );
@@ -413,13 +415,15 @@ fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &m
             .expect("the session is a player");
         player.data_dirty = false;
         super::task::player_saved(&mut player.extra, &data.extra);
-        snapshot.players.push((key.clone(), data));
+        snapshot.players.push((key.clone(), Arc::new(data)));
         held.players.insert(key);
     }
     for (key, offline) in &mut state.saving.offline {
         if offline.snapshot.is_none() {
             offline.snapshot = Some(start);
-            snapshot.players.push((key.clone(), offline.data.clone()));
+            snapshot
+                .players
+                .push((key.clone(), Arc::clone(&offline.data)));
             held.players.insert(key.clone());
         }
     }
@@ -686,7 +690,7 @@ mod tests {
         snapshot
             .players
             .into_iter()
-            .map(|(k, d)| (k.as_str().to_owned(), d))
+            .map(|(k, d)| (k.as_str().to_owned(), Arc::unwrap_or_clone(d)))
             .collect()
     }
 
@@ -792,6 +796,27 @@ mod tests {
         let player = &state.players[&SessionId::new(1)];
         assert_eq!(player.xp_level(), 9);
         assert_eq!(saved[0].1, data_of(&state, player));
+    }
+
+    /// The snapshot holds a departed player's data as the memory that keeps it until the commit
+    /// does: shared, not copied on the tick.
+    #[test]
+    fn a_snapshot_shares_a_departed_players_data() {
+        let mut state = state(Listeners::default());
+        let gone = StoredPlayer::offline("gone");
+        let data = data_of(&state, &state.players[&SessionId::new(1)]);
+        keep(&mut state.saving, gone.clone(), data);
+        state.saving.requested = true;
+        let Some(Request::Commit(snapshot)) = snapshot(&mut state, &mut InputLog::default(), false)
+        else {
+            panic!("a snapshot was asked for");
+        };
+        let taken = snapshot
+            .players
+            .iter()
+            .find_map(|(key, data)| (*key == gone).then_some(data))
+            .expect("the departed player's data is in the snapshot");
+        assert!(Arc::ptr_eq(taken, &state.saving.offline[&gone].data));
     }
 
     /// Runs 200 ticks of 1 MiB of input each with saves every 1440 minutes, auto-save on or off,
@@ -952,8 +977,8 @@ mod tests {
         cx.delete_world("arena").unwrap();
         let new = cx.create_world("lobby", &options).unwrap();
         assert_eq!(
-            crate::save::place(new.index()),
-            crate::save::place(old.index())
+            crate::save::list_index(new.index()),
+            crate::save::list_index(old.index())
         );
         world_open_failed(&mut state, old.index());
         tick(&mut state, &mut Vec::new(), &mut output);

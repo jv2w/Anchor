@@ -66,7 +66,7 @@ fn pick(state: &State, session: SessionId, runtime_id: u64) -> Option<(crate::en
         .get(id)
         .filter(|e| !e.flagged && e.world == player.world)?;
     let picked = picked_item(&e.kind)?;
-    let finite = survival::has_finite_resources(survival::game_mode(state, player));
+    let finite = survival::has_finite_resources(player.game_mode());
     (!finite || inventory::has(player, &picked)).then_some((id, picked))
 }
 

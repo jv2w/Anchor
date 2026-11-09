@@ -52,8 +52,8 @@ pub(crate) const MAX_SPILLS: usize = 1024;
 pub(crate) const SUB_CHUNKS: usize = 24;
 // A ban the list takes can be stored.
 const _: () = assert!(
-    crate::permission::MAX_REASON <= MAX_NAME_BYTES
-        && crate::permission::MAX_SOURCE <= MAX_NAME_BYTES
+    crate::permission::MAX_REASON_BYTES <= MAX_NAME_BYTES
+        && crate::permission::MAX_SOURCE_BYTES <= MAX_NAME_BYTES
 );
 
 /// A value that has a sealed form in one storage table.

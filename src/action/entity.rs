@@ -34,7 +34,7 @@ impl Action for Attack {}
 
 /// An explosion as the game makes one.
 ///
-/// It does what [`Context::explode`](crate::Context::explode) does, with the events of the
+/// It does what [`Context::explode`](crate::Context::explode) does with it, with the events of the
 /// entities it hurts and pushes ([`EntityDamage`](crate::event::EntityDamage),
 /// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
 /// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world that is not

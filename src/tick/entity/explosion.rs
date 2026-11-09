@@ -9,8 +9,9 @@
 //! stops). With `fire`, a third of the destroyed blocks become fire where the block under them is
 //! a full top; that fire is a plain block, which never spreads or burns out.
 //!
-//! Bounds: the size is at most [`MAX_EXPLOSION_RADIUS`], so the block rays of one explosion look
-//! at no more than 1,352 × 47 cells (the exposure rays to each entity and player hit come on top);
+//! Bounds: the size is at most [`MAX_EXPLOSION_SIZE`], so the block rays of one explosion look
+//! at no more than 1,352 × 47 cells (the exposure rays to each entity and player hit, at most
+//! 1,000 each by [`MAX_EXPOSURE_STEPS`], come on top);
 //! primed TNT and end crystals that died explode while the tick has done fewer than
 //! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`] blocks,
 //! and wait otherwise (TNT with an empty fuse). A ray stops at a chunk that is not loaded and at a
@@ -23,7 +24,7 @@
 //! nothing, so a chain of such blocks cannot overflow the tick thread's stack.
 //!
 //! Primed TNT and end crystals raise `EntityPreExplode` before they explode: its listeners may
-//! cancel it, or change the radius, the fire chance and whether blocks break. The explosion of an
+//! cancel it, or change the size, the fire chance and whether blocks break. The explosion of an
 //! entity then raises `EntityExplode` once its blocks are known. The exploding entity stays until
 //! its explosion is over, so these listeners can look it up; it goes either way.
 
@@ -37,7 +38,7 @@ use super::{
 use crate::block::{self, Face, SupportType};
 use crate::entity::Id;
 use crate::event::{
-    Actor, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode, MAX_EXPLOSION_RADIUS,
+    Actor, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode, MAX_EXPLOSION_SIZE,
 };
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
@@ -61,6 +62,10 @@ const DAMAGE_PER_REACH: f64 = 8.0;
 pub(super) const MAX_BLOCKS_PER_TICK: usize = 8192;
 /// Explosions of primed TNT and end crystals per tick; the rest wait for the next tick.
 pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
+/// The most steps an exposure check takes along one side of a box: a side of up to 4 blocks is
+/// sampled as densely as the game does, a longer one with wider spacing, so the rays to one
+/// entity stay at most 10 per axis (1,000) whatever its size.
+const MAX_EXPOSURE_STEPS: f64 = 9.0;
 /// How many explosions may run inside each other's custom block hooks; a deeper one does nothing.
 const MAX_NESTED_EXPLOSIONS: u8 = 8;
 /// The least size of an explosion that looks for blocks to break.
@@ -84,10 +89,10 @@ const STRENGTH_PER_MILLE: (i32, i32) = (700, 1300);
 /// The size of a TNT explosion.
 const TNT_SIZE: f64 = 4.0;
 
-/// What an explosion is: its radius, its fire chance, and whether it breaks blocks.
+/// What an explosion is: its size, its fire chance, and whether it breaks blocks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::tick) struct Blast {
-    /// The size (radius), above 0; cut to [`MAX_EXPLOSION_RADIUS`].
+    /// The size (radius), above 0; cut to [`MAX_EXPLOSION_SIZE`].
     pub(in crate::tick) size: f64,
     /// The chance, 0 to 1, that a destroyed block catches fire.
     pub(in crate::tick) fire_chance: f64,
@@ -149,7 +154,7 @@ enum Outcome {
 
 impl Outcome {
     /// Raises [`EntityExplode`] for an entity's explosion, if heard, with the `blocks` and
-    /// `ignitions` found and the default `yield_percent`; `None` when the listeners cancel it or
+    /// `ignitions` found and the default `drop_chance`; `None` when the listeners cancel it or
     /// the world is gone.
     fn ask(
         state: &mut State,
@@ -158,16 +163,16 @@ impl Outcome {
         source: Source,
         blocks: Vec<BlockPos>,
         ignitions: Vec<BlockPos>,
-        yield_percent: f64,
+        drop_chance: f64,
     ) -> Option<Self> {
         let outcome = match source {
             Source::Entity(entity) if dispatch::heard::<EntityExplode>(state) => {
                 let mut e = EntityExplode {
                     entity,
                     world: world::Id::of(world),
-                    position: center,
+                    center,
                     blocks,
-                    yield_percent,
+                    drop_chance,
                     ignitions,
                     cancelled: false,
                 };
@@ -207,11 +212,11 @@ impl Outcome {
         }
     }
 
-    /// The yield in percent the listeners left; `None` when no event was raised.
-    fn yield_percent(&self) -> Option<f64> {
+    /// The drop chance the listeners left; `None` when no event was raised.
+    fn drop_chance(&self) -> Option<f64> {
         match self {
             Self::Found { .. } => None,
-            Self::Entity(e) => Some(e.yield_percent),
+            Self::Entity(e) => Some(e.drop_chance),
         }
     }
 }
@@ -254,7 +259,7 @@ fn has_budget(budget: &Budget) -> bool {
 }
 
 /// Explodes the entity `id` with `size` and removes it, counted in the tick's `budget`:
-/// `EntityPreExplode` first, whose listeners may cancel it or change the radius, the fire chance
+/// `EntityPreExplode` first, whose listeners may cancel it or change the size, the fire chance
 /// and whether blocks break. It explodes where it is after the listeners: primed TNT half its
 /// height above its position, an end crystal at its position. A listener that takes it away
 /// cancels the explosion.
@@ -265,7 +270,7 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
     if dispatch::heard::<EntityPreExplode>(state) {
         let mut e = EntityPreExplode {
             entity: id,
-            radius: blast.size,
+            size: blast.size,
             fire_chance: blast.fire_chance,
             block_breaking: blast.breaks,
             cancelled: false,
@@ -276,7 +281,7 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
             return;
         }
         blast = Blast {
-            size: e.radius,
+            size: e.size,
             fire_chance: e.fire_chance,
             breaks: e.block_breaking,
         };
@@ -307,8 +312,8 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
 ///
 /// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] once the blocks are
 /// known: cancelling stops it there (no block breaks, nothing is hurt), and the listeners' block
-/// list (at most [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone), ignitions and yield are
-/// used; the hits and pushes raise their own events.
+/// list (at most [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone), ignitions and drop chance
+/// are used; the hits and pushes raise their own events.
 ///
 /// The `on_break` hooks of the custom blocks it destroyed run last, as one step. An explosion
 /// inside such a hook that is already [`MAX_NESTED_EXPLOSIONS`] levels deep does nothing and
@@ -332,7 +337,7 @@ pub(super) fn explode_with(
     {
         return 0;
     }
-    let size = math::min(blast.size, MAX_EXPLOSION_RADIUS);
+    let size = math::min(blast.size, MAX_EXPLOSION_SIZE);
     let mut random = Random::new(
         w.seed(),
         state.tick,
@@ -351,17 +356,9 @@ pub(super) fn explode_with(
     } else {
         affected(w, center, size, blast.fire_chance, &mut random)
     };
-    let yield_percent = math::min(100.0, 100.0 / size);
+    let drop_chance = math::min(1.0, 1.0 / size);
     let outcome = if raise == Raise::Events {
-        let asked = Outcome::ask(
-            state,
-            world,
-            center,
-            source,
-            blocks,
-            ignitions,
-            yield_percent,
-        );
+        let asked = Outcome::ask(state, world, center, source, blocks, ignitions, drop_chance);
         let Some(outcome) = asked else {
             return 0;
         };
@@ -369,10 +366,10 @@ pub(super) fn explode_with(
     } else {
         Outcome::Found { blocks, ignitions }
     };
-    // The size whose 1 / size drop chance the blocks get: the yield as a size.
-    let drop_size = match outcome.yield_percent() {
-        // A yield of 0 is an infinite size: no drops.
-        Some(chosen) if chosen != yield_percent => 100.0 / chosen,
+    // The size whose 1 / size drop chance the blocks get: the chance as a size.
+    let drop_size = match outcome.drop_chance() {
+        // A chance of 0 is an infinite size: no drops.
+        Some(chosen) if chosen != drop_chance => 1.0 / chosen,
         _ => size,
     };
     hit_entities(state, world, center, size, source, hooks, raise);
@@ -383,12 +380,12 @@ pub(super) fn explode_with(
         state.rules.entities.restep.extend(near);
     }
     let mut destroyed = Vec::new();
+    let cause = interact::Destroy::Explosion {
+        size: drop_size,
+        raise,
+    };
     for &pos in outcome.blocks() {
-        let cause = interact::Destroy::Explosion {
-            size: drop_size,
-            raise,
-        };
-        if let Some(removed) = interact::destroy_deferring_hooks(state, world, pos, cause) {
+        if let Some(removed) = interact::destroy_deferring_hooks(state, world, pos, &cause) {
             destroyed.push(removed);
         }
     }
@@ -584,7 +581,7 @@ fn hit_entities(
             && let Some(p) = state.players.get(&session)
         {
             let feet = survival::feet(p);
-            let blast = survival::highest_armor_level(p, Enchantment::BlastProtection);
+            let blast = survival::protection_level(p, Enchantment::BlastProtection);
             let force =
                 base - math::min(base, base * f64::from(blast) * BLAST_PROTECTION_REDUCTION);
             let knock = Knock {
@@ -668,7 +665,11 @@ fn damage_of(impact: f64, reach: f64) -> f64 {
 /// the way; blocks of chunks that are not loaded stop rays.
 fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
     let size = bounds.max - bounds.min;
-    let diff = Vec3::new(size.x * 2.0 + 1.0, size.y * 2.0 + 1.0, size.z * 2.0 + 1.0);
+    let diff = Vec3::new(
+        exposure_steps(size.x),
+        exposure_steps(size.y),
+        exposure_steps(size.z),
+    );
     let step = Vec3::new(1.0 / diff.x, 1.0 / diff.y, 1.0 / diff.z);
     let x_offset = (1.0 - diff.x.floor() / diff.x) / 2.0;
     let z_offset = (1.0 - diff.z.floor() / diff.z) / 2.0;
@@ -697,6 +698,12 @@ fn exposure(w: &World, origin: Vec3, bounds: Aabb) -> f64 {
     }
     // Every loop starts at 0, so at least one point was checked.
     f64::from(hits) / f64::from(checks)
+}
+
+/// The steps an exposure check takes along a box side of `side` blocks: 2 × side + 1, at most
+/// [`MAX_EXPOSURE_STEPS`].
+fn exposure_steps(side: f64) -> f64 {
+    math::min(side * 2.0 + 1.0, MAX_EXPOSURE_STEPS)
 }
 
 #[cfg(test)]
@@ -966,6 +973,26 @@ mod tests {
         assert_eq!(damage_of(0.0, 8.0), 1.0);
     }
 
+    /// A box side of up to 4 blocks is sampled as densely as the game does; a longer one takes
+    /// no more steps, so a 16-block box costs no more rays than a 4-block one.
+    #[test]
+    fn exposure_steps_stop_growing_past_a_four_block_side() {
+        assert_eq!(exposure_steps(0.6), 0.6 * 2.0 + 1.0);
+        assert_eq!(exposure_steps(4.0), 9.0);
+        assert_eq!(exposure_steps(16.0), 9.0);
+        let mut h = Harness::new(1);
+        let origin = Vec3::new(0.5, -40.0, 0.5);
+        let huge = Aabb::new(Vec3::new(4.0, -48.0, -8.0), Vec3::new(20.0, -32.0, 8.0));
+        assert_eq!(exposure(&h.state.worlds[0], origin, huge), 1.0);
+        fill(
+            &mut h,
+            BlockPos::new(2, -45, -5),
+            BlockPos::new(2, -35, 5),
+            "minecraft:obsidian",
+        );
+        assert_eq!(exposure(&h.state.worlds[0], origin, huge), 0.0);
+    }
+
     #[test]
     fn explosions_hurt_and_push_npcs_and_players_by_their_exposure() {
         let mut h = Harness::new(1);
@@ -1078,7 +1105,7 @@ mod tests {
         destroyed.remove(&center);
         let items = h.ground();
         assert!(!destroyed.is_empty());
-        assert!(items > 0, "a quarter drops (yield 1 / 4)");
+        assert!(items > 0, "a quarter drops (drop chance 1 / 4)");
         assert!(
             items <= destroyed.len() as u64,
             "{items} items from {} blocks",

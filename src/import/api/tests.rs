@@ -842,25 +842,62 @@ fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
     );
 }
 
-/// A world file another process opened after the import made it (a server that made a world of the
-/// name meanwhile) is that process's: refused and kept, not removed under it.
+/// A temporary world file another import of the name holds is that import's: refused, and
+/// neither emptied nor removed under it.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: a test checks the folder"
-)]
-fn a_world_file_another_process_opened_is_refused_and_kept() {
-    let dir = crate::save::tests::TempDir::new("import-opened-meanwhile");
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn a_temporary_file_another_import_holds_is_refused_and_kept() {
+    let dir = crate::save::tests::TempDir::new("import-held-meanwhile");
     let place = Place::world(&dir.0.join("data"), NAME);
     let start = Start::checked(StartBackup::Make);
-    let held = Storage::open(&place, start).unwrap();
-    let err = open_created(&place, start, NAME).unwrap_err();
+    let temp = temp_place(&place);
+    let held = Storage::open(&temp, start).unwrap();
+    let len = std::fs::metadata(&temp.file).unwrap().len();
+    let err = write_world(
+        &place,
+        start,
+        &spec(),
+        1,
+        &Registry::default(),
+        &mut Source::open(Path::new(FIXTURE)).unwrap(),
+    )
+    .unwrap_err();
     assert!(
         matches!(&err, crate::Error::Import(Error::WorldExists { name }) if name == NAME),
         "{err:?}"
     );
-    assert!(place.file.exists(), "the file is kept");
+    assert_eq!(
+        std::fs::metadata(&temp.file).unwrap().len(),
+        len,
+        "the file is as it was"
+    );
+    assert!(!place.file.exists(), "nothing is published");
     drop(held);
+}
+
+/// The temporary world file a crashed import left holds no lock: the next import empties it and
+/// writes the world.
+#[test]
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn a_temporary_file_a_crash_left_is_emptied_and_written() {
+    let dir = crate::save::tests::TempDir::new("import-crash-left");
+    let place = Place::world(&dir.0.join("data"), NAME);
+    let temp = temp_place(&place);
+    std::fs::create_dir_all(temp.file.parent().unwrap()).unwrap();
+    std::fs::write(&temp.file, b"not a world file").unwrap();
+    let report = write_world(
+        &place,
+        Start::checked(StartBackup::Make),
+        &spec(),
+        1,
+        &Registry::default(),
+        &mut Source::open(Path::new(FIXTURE)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report.chunks(), 36);
+    assert!(!temp.file.exists(), "the temporary file is renamed");
+    let mut storage = Storage::open(&place, Start::checked(StartBackup::Make)).unwrap();
+    assert!(world_record(&mut storage).is_some());
 }
 
 /// A declared world imported under its name in another letter case gets its file in the declared
@@ -880,7 +917,7 @@ fn a_declared_world_imported_in_another_letter_case_takes_the_declared_name() {
     )
     .unwrap();
     assert_eq!(report.chunks(), 36);
-    assert_eq!(save::world_files(&data).unwrap(), [NAME]);
+    assert_eq!(save::world_names(&data).unwrap(), [NAME]);
 }
 
 /// An import whose world file would be one past the most `data/worlds/` may hold is refused
@@ -916,7 +953,7 @@ fn an_import_makes_no_world_file_past_the_most_the_folder_holds() {
     );
     assert!(!Place::world(&data, NAME).file.exists());
     assert_eq!(
-        save::world_files(&data).unwrap().len(),
+        save::world_names(&data).unwrap().len(),
         crate::storage::MAX_WORLDS
     );
 }
@@ -1112,10 +1149,10 @@ fn the_official_server_fixture_imports_with_every_block_known_and_in_place() {
 }
 
 #[test]
-fn chunks_a_game_saved_import_with_every_block_entity_whole() {
-    let dir = crate::save::tests::TempDir::new("import-continental-run");
+fn chunks_a_strict_reader_rejects_import_with_every_block_entity_whole() {
+    let dir = crate::save::tests::TempDir::new("import-strict-run");
     let world = dir.0.join("world");
-    crate::import::tests::write_world(&world, &crate::import::tests::continental());
+    crate::import::tests::write_world(&world, &crate::import::tests::strict_reader_chunks());
     let data = dir.0.join("data");
     let report = run(
         &data,
@@ -1154,7 +1191,7 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
                 .sub_chunk(usize::try_from(i32::from(section.y) + 4).unwrap())
                 .unwrap();
             let Layer::Paletted(layer) = &section.layers[0] else {
-                panic!("the game writes paletted layers");
+                panic!("the export writes paletted layers");
             };
             let indices: Vec<u16> = (0..u16::try_from(layer.palette.len()).unwrap()).collect();
             let cube = Paletted::from_parts(layer.bits, &layer.words, &indices).unwrap();

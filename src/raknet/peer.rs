@@ -51,7 +51,7 @@ const MAX_BURST: usize = 32;
 /// Reliable datagrams in flight at most (the resend window). go-raknet receivers accept a 2048
 /// datagram gap; more in flight could exceed it after one loss.
 const MAX_CWND: usize = 2048;
-/// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-size`.
+/// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-bytes`.
 pub(crate) const MAX_MTU: u16 = 1492;
 /// Separate gaps in the reliable indices at most. Each costs a map entry; an honest sender has
 /// at most one per frame it is resending.

@@ -57,7 +57,7 @@ max-players = 20
 # true: players must sign in to Xbox Live. false: anyone can join under any name.
 xbox-auth = true
 # true: only listed players can join. Manage the list with the whitelist command.
-white-list = false
+whitelist = false
 # Default for new players: "survival", "creative", "adventure" or "spectator".
 gamemode = "survival"
 # true: players get the default game mode on every join.
@@ -127,7 +127,7 @@ log-level = "info"
 # Network compression: "snappy" (less CPU) or "zlib" (less bandwidth).
 compression = "snappy"
 # Batches smaller than this many bytes are sent uncompressed (1 to 65535).
-compression-threshold = 256
+compression-threshold-bytes = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
 # Largest decompressed batch received from a player or sent to one, in bytes (4210786 to
@@ -145,7 +145,7 @@ transport = "all"
 # sender address cannot take connection slots. Some hosts' DDoS filters drop such handshakes.
 raknet-cookies = false
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
-max-mtu-size = 1492
+max-mtu-bytes = 1492
 # PEM certificate chain and private key for HTTPS NetherNet signaling.
 # Empty: plain HTTP, and players confirm the server key on first join.
 nethernet-tls-cert = ""
@@ -169,7 +169,7 @@ lighting = "dynamic"
 # Sky light everywhere when lighting is "fixed" (0 to 15). Block light is then 0.
 fixed-light-level = 15
 # Ticks between checks for items a player can pick up (1 to 20).
-item-pickup-interval = 1
+item-pickup-interval-ticks = 1
 # false: movement packets the server sends skip the send hooks.
 hook-movement-packets = true
 # false: PlayerAuthInput packets skip the receive hooks.
@@ -197,8 +197,8 @@ const FIXED_LIGHT_LEVEL_RANGE: RangeInclusive<u8> = 0..=15;
 /// The `item-despawn-ticks` range: one tick to an hour.
 pub(crate) const ITEM_DESPAWN_TICKS_RANGE: RangeInclusive<u32> = 1..=72_000;
 
-/// The `item-pickup-interval` range: every tick to once a second.
-const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
+/// The `item-pickup-interval-ticks` range: every tick to once a second.
+const ITEM_PICKUP_INTERVAL_TICKS_RANGE: RangeInclusive<u8> = 1..=20;
 
 /// The largest settings file read. The default file is about 7 KiB; the cap bounds the parser's
 /// memory.
@@ -211,12 +211,12 @@ const MAX_LEVEL_NAME_BYTES: usize = 64;
 /// one datagram; 256 + 64 bytes and the other fields fit the 576-byte minimum MTU.
 pub const MAX_MOTD_BYTES: usize = 256;
 
+/// The `max-mtu-bytes` range; go-raknet's dialer probes 1492, 1200 and 576, and 1492 is the
+/// largest RakNet MTU.
+const MAX_MTU_BYTES_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
+
 /// The longest `shutdown-message`, in bytes: a disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
-
-/// The `max-mtu-size` range; go-raknet's dialer probes 1492, 1200 and 576, and 1492 is the
-/// largest RakNet MTU.
-const MTU_SIZE_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
 
 /// The `max-players` range; the player and session tables are sized from it.
 const PLAYERS_RANGE: RangeInclusive<u32> = 1..=10_000;
@@ -267,7 +267,7 @@ impl Config {
         let d = &self.developer;
         batch::Settings::new(
             d.compression,
-            d.compression_threshold,
+            d.compression_threshold_bytes,
             d.compression_level,
             d.max_batch_bytes,
         )
@@ -438,9 +438,9 @@ impl Config {
             )));
         }
         range(
-            Key::developer("max-mtu-size"),
-            d.max_mtu_size,
-            MTU_SIZE_RANGE,
+            Key::developer("max-mtu-bytes"),
+            d.max_mtu_bytes,
+            MAX_MTU_BYTES_RANGE,
         )?;
         let cert = Key::developer("nethernet-tls-cert");
         let key = Key::developer("nethernet-tls-key");
@@ -471,9 +471,9 @@ impl Config {
             FIXED_LIGHT_LEVEL_RANGE,
         )?;
         range(
-            Key::developer("item-pickup-interval"),
-            d.item_pickup_interval,
-            ITEM_PICKUP_INTERVAL_RANGE,
+            Key::developer("item-pickup-interval-ticks"),
+            d.item_pickup_interval_ticks,
+            ITEM_PICKUP_INTERVAL_TICKS_RANGE,
         )?;
         range(
             Key::developer("save-interval-minutes"),
@@ -615,8 +615,8 @@ pub struct General {
     #[doc(alias = "Server::getOnlineMode")]
     #[doc(alias = "Server::requiresAuthentication")]
     pub xbox_auth: bool,
-    /// `white-list`: whether only listed players can join.
-    pub white_list: bool,
+    /// `whitelist`: whether only listed players can join.
+    pub whitelist: bool,
     /// `gamemode`: the default game mode of new players.
     pub gamemode: GameMode,
     /// `force-gamemode`: whether players get the default game mode on every join.
@@ -713,7 +713,7 @@ impl General {
                 }
                 "max-players" => self.max_players = int(value, key, PLAYERS_RANGE)?,
                 "xbox-auth" => self.xbox_auth = boolean(value, key)?,
-                "white-list" => self.white_list = boolean(value, key)?,
+                "whitelist" => self.whitelist = boolean(value, key)?,
                 "gamemode" => self.gamemode = choice(value, key, &GameMode::NAMES)?,
                 "force-gamemode" => self.force_gamemode = boolean(value, key)?,
                 "difficulty" => self.difficulty = choice(value, key, &Difficulty::NAMES)?,
@@ -770,7 +770,7 @@ impl Default for General {
             public_ip: None,
             max_players: 20,
             xbox_auth: true,
-            white_list: false,
+            whitelist: false,
             gamemode: GameMode::Survival,
             force_gamemode: false,
             difficulty: Difficulty::Normal,
@@ -812,8 +812,8 @@ impl Default for General {
 pub struct Developer {
     /// `compression`: the network compression algorithm.
     pub compression: Compression,
-    /// `compression-threshold`: batches shorter than this many bytes are sent uncompressed.
-    pub compression_threshold: u16,
+    /// `compression-threshold-bytes`: batches shorter than this many bytes are sent uncompressed.
+    pub compression_threshold_bytes: u16,
     /// `compression-level`: the zlib level, 1 (fastest) to 9 (smallest).
     pub compression_level: u8,
     /// `max-batch-bytes`: the largest decompressed batch received from a client or sent to one.
@@ -826,8 +826,8 @@ pub struct Developer {
     /// `raknet-cookies`: whether a RakNet client must send back the cookie of its address before
     /// it gets a connection, so a spoofed address cannot take connection slots.
     pub raknet_cookies: bool,
-    /// `max-mtu-size`: the largest RakNet packet in bytes.
-    pub max_mtu_size: u16,
+    /// `max-mtu-bytes`: the largest RakNet packet in bytes.
+    pub max_mtu_bytes: u16,
     /// `nethernet-tls-cert`: the PEM certificate chain for HTTPS signaling; `None` is plain HTTP.
     pub nethernet_tls_cert: Option<PathBuf>,
     /// `nethernet-tls-key`: the PEM private key for HTTPS signaling.
@@ -849,8 +849,8 @@ pub struct Developer {
     pub lighting: Lighting,
     /// `fixed-light-level`: the sky light everywhere when `lighting` is [`Lighting::Fixed`].
     pub fixed_light_level: u8,
-    /// `item-pickup-interval`: ticks between checks for items a player can pick up.
-    pub item_pickup_interval: u8,
+    /// `item-pickup-interval-ticks`: ticks between checks for items a player can pick up.
+    pub item_pickup_interval_ticks: u8,
     /// `hook-movement-packets`: whether movement packets the server sends pass the send hooks.
     pub hook_movement_packets: bool,
     /// `hook-player-input`: whether `PlayerAuthInput` packets pass the receive hooks.
@@ -872,8 +872,8 @@ impl Developer {
                 "compression" => self.compression = choice(value, key, &Compression::NAMES)?,
                 // The other limits of these three live in `batch::Settings::new`, which `check`
                 // calls; here a value only has to fit the field.
-                "compression-threshold" => {
-                    self.compression_threshold = int(value, key, u16::MIN..=u16::MAX)?;
+                "compression-threshold-bytes" => {
+                    self.compression_threshold_bytes = int(value, key, u16::MIN..=u16::MAX)?;
                 }
                 "compression-level" => {
                     self.compression_level = int(value, key, u8::MIN..=u8::MAX)?;
@@ -884,7 +884,7 @@ impl Developer {
                 "enable-encryption" => self.enable_encryption = boolean(value, key)?,
                 "transport" => self.transport = choice(value, key, &Transports::NAMES)?,
                 "raknet-cookies" => self.raknet_cookies = boolean(value, key)?,
-                "max-mtu-size" => self.max_mtu_size = int(value, key, MTU_SIZE_RANGE)?,
+                "max-mtu-bytes" => self.max_mtu_bytes = int(value, key, MAX_MTU_BYTES_RANGE)?,
                 "nethernet-tls-cert" => {
                     self.nethernet_tls_cert = optional(value, key, "empty or a path")?;
                 }
@@ -903,8 +903,9 @@ impl Developer {
                 "fixed-light-level" => {
                     self.fixed_light_level = int(value, key, FIXED_LIGHT_LEVEL_RANGE)?;
                 }
-                "item-pickup-interval" => {
-                    self.item_pickup_interval = int(value, key, ITEM_PICKUP_INTERVAL_RANGE)?;
+                "item-pickup-interval-ticks" => {
+                    self.item_pickup_interval_ticks =
+                        int(value, key, ITEM_PICKUP_INTERVAL_TICKS_RANGE)?;
                 }
                 "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
                 "hook-player-input" => self.hook_player_input = boolean(value, key)?,
@@ -926,13 +927,13 @@ impl Default for Developer {
     fn default() -> Self {
         Self {
             compression: Compression::Snappy,
-            compression_threshold: batch::Settings::DEFAULT_THRESHOLD,
+            compression_threshold_bytes: batch::Settings::DEFAULT_THRESHOLD_BYTES,
             compression_level: batch::Settings::DEFAULT_ZLIB_LEVEL,
             max_batch_bytes: batch::Settings::DEFAULT_MAX_BATCH_BYTES,
             enable_encryption: true,
             transport: Transports::All,
             raknet_cookies: false,
-            max_mtu_size: crate::raknet::MAX_MTU,
+            max_mtu_bytes: crate::raknet::MAX_MTU,
             nethernet_tls_cert: None,
             nethernet_tls_key: None,
             network_threads: Threads::Auto,
@@ -943,7 +944,7 @@ impl Default for Developer {
             slow_empty_worlds: false,
             lighting: Lighting::Dynamic,
             fixed_light_level: 15,
-            item_pickup_interval: 1,
+            item_pickup_interval_ticks: 1,
             hook_movement_packets: true,
             hook_player_input: true,
             save_interval_minutes: 10,
@@ -1676,7 +1677,7 @@ fn position(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
 )]
 fn batch_key(error: &batch::Error) -> &'static str {
     match error {
-        batch::Error::Threshold => "developer.compression-threshold",
+        batch::Error::Threshold => "developer.compression-threshold-bytes",
         batch::Error::ZlibLevel(_) => "developer.compression-level",
         batch::Error::MaxBatchBytes(_) => "developer.max-batch-bytes",
         _ => unreachable!("batch settings are rejected for one of three values"),

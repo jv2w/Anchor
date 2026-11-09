@@ -16,7 +16,7 @@ mod signaling;
 
 pub(crate) use peer::MAX_DATAGRAM_BYTES;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Semaphore, mpsc, oneshot, watch};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tracing::{debug, trace, warn};
 
 use crate::auth::Auth;
@@ -47,15 +47,25 @@ use signaling::{Code, Host, Offer, Reply};
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// The first byte of a DTLS record on the shared UDP port (RFC 7983 7).
 const DTLS_FIRST_BYTE_RANGE: RangeInclusive<u8> = 20..=63;
+/// How long the addresses of a successful lookup are kept. Honest clients of one server give the
+/// same name, so once it resolved, names whose lookups hang cannot keep it from their answers;
+/// the time is short so that a changed DNS record reaches the answers soon.
+const HOST_CACHE_LIFETIME: Duration = Duration::from_secs(60);
 /// How long an offer waits for the lookup of the DNS name its client gave. A resolver answers
 /// in milliseconds, the more so as the client has just resolved the same name; past this the
 /// answer goes without the name's addresses, well inside the signaling request deadline.
 const HOST_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 /// The identity key file in the data folder.
 pub(crate) const IDENTITY_FILE: &str = "identity.key";
+/// The lookup requests waiting for the lookup task. Each negotiation sends at most one, and
+/// the signaling connection limit bounds the negotiations.
+const LOOKUP_QUEUE: usize = 64;
 /// The host candidates one answer advertises at most: the signaling address and the addresses
 /// of the host the client gave.
 const MAX_ANSWER_CANDIDATES: usize = 4;
+/// The names whose addresses are kept at most. While it is full a new name's addresses are not
+/// kept, so names a client makes up cannot push out a name honest clients give.
+const MAX_CACHED_HOSTS: usize = 64;
 /// The peers that may linger after their session closed them, at most; a new one removes the
 /// oldest. A closing peer keeps up to `MAX_UNSENT_BYTES` unacknowledged and its str0m state for
 /// `CLOSE_LINGER`, and the client can withhold the acknowledgements, so the count is bounded as
@@ -63,7 +73,8 @@ const MAX_ANSWER_CANDIDATES: usize = 4;
 const MAX_CLOSING_PEERS: usize = MAX_PRE_LOGIN;
 /// The DNS lookups of client-given names that run at once. A lookup runs on a blocking thread
 /// and keeps it until the OS resolver returns, even after its offer is gone, so this bounds the
-/// blocking threads names whose lookups hang can hold (`runtime` reserves them).
+/// blocking threads names whose lookups hang can hold (`runtime` reserves them). One client IP
+/// key runs or waits for one lookup at a time, so holding them all takes this many keys.
 pub(crate) const MAX_HOST_LOOKUPS: usize = 2;
 /// The addresses taken from one lookup, at most, in the resolver's order.
 const MAX_LOOKUP_ADDRS: usize = 16;
@@ -251,8 +262,8 @@ struct Offers {
     public_ip: Option<IpAddr>,
     udp_addrs: Vec<SocketAddr>,
     driver: mpsc::Sender<Command>,
-    /// [`MAX_HOST_LOOKUPS`] permits, each held by a running lookup.
-    lookups: Arc<Semaphore>,
+    /// The lookup task ([`HostLookups`]).
+    lookups: mpsc::Sender<HostLookup>,
 }
 
 impl Offers {
@@ -339,7 +350,7 @@ impl Offers {
         };
         let advertised = self.advertised(local_ip)?;
         // After the verification, so that only a verified offer makes the server look up a name.
-        let candidates = self.candidates(advertised, host).await;
+        let candidates = self.candidates(advertised, host, client_ip).await;
         let remote = peer::Remote {
             ice_ufrag: offer.ice_ufrag,
             ice_pwd: offer.ice_pwd,
@@ -409,13 +420,19 @@ impl Offers {
     /// `host` in its family and with its port, without repeats and at most
     /// [`MAX_ANSWER_CANDIDATES`] in all. Behind a NAT the signaling address is a private one; the
     /// host the client was given is an address it can reach. Only this client's answer carries
-    /// them: the server never sends to its own candidates.
-    async fn candidates(&self, first: SocketAddr, host: Option<Host>) -> Vec<SocketAddr> {
+    /// them: the server never sends to its own candidates. `client_ip` is the signaling client's,
+    /// for the lookup limit.
+    async fn candidates(
+        &self,
+        first: SocketAddr,
+        host: Option<Host>,
+        client_ip: IpAddr,
+    ) -> Vec<SocketAddr> {
         let mut candidates = vec![first];
         let Some(host) = host.filter(|_| self.public_ip.is_none()) else {
             return candidates;
         };
-        for ip in self.resolve(host).await {
+        for ip in self.resolve(host, client_ip).await {
             let addr = SocketAddr::new(ip.to_canonical(), first.port());
             if candidates.len() == MAX_ANSWER_CANDIDATES {
                 break;
@@ -427,48 +444,27 @@ impl Offers {
         candidates
     }
 
-    /// The addresses of `host`: the literal itself, or what the OS resolver gives for the name
-    /// within [`HOST_LOOKUP_TIMEOUT`]; none when the lookup fails or takes longer.
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: the lookup semaphore is never closed"
-    )]
-    async fn resolve(&self, host: Host) -> Vec<IpAddr> {
+    /// The addresses of `host`: the literal itself, or what the lookup task gives for the name
+    /// within [`HOST_LOOKUP_TIMEOUT`]; none when the lookup fails, is refused or takes longer.
+    async fn resolve(&self, host: Host, client_ip: IpAddr) -> Vec<IpAddr> {
         let name = match host {
             Host::Ip(ip) => return vec![ip],
             Host::Name(name) => name,
         };
-        let lookups = Arc::clone(&self.lookups);
-        let looked_up = name.clone();
-        let lookup = async move {
-            let permit = lookups
-                .acquire_owned()
-                .await
-                .expect("the lookup semaphore stays open");
-            // The permit goes with the blocking thread, which outlives a cancelled offer.
-            tokio::task::spawn_blocking(move || {
-                let addrs = lookup(&looked_up);
-                drop(permit);
-                addrs
-            })
-            .await
+        let (reply, answer) = oneshot::channel();
+        let request = HostLookup {
+            name: name.clone(),
+            ip_key: ip_key(client_ip),
+            reply,
         };
-        match tokio::time::timeout(HOST_LOOKUP_TIMEOUT, lookup).await {
-            Ok(Ok(Ok(addrs))) => addrs,
-            Ok(Ok(Err(e))) => {
-                debug!(
-                    host = %name,
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "nethernet host lookup failed"
-                );
-                Vec::new()
-            }
-            Ok(Err(e)) => {
-                debug!(
-                    host = %name,
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "nethernet host lookup task failed"
-                );
+        let asked = async {
+            self.lookups.send(request).await.ok()?;
+            answer.await.ok()
+        };
+        match tokio::time::timeout(HOST_LOOKUP_TIMEOUT, asked).await {
+            Ok(Some(addrs)) => addrs,
+            Ok(None) => {
+                debug!(host = %name, "nethernet host not looked up");
                 Vec::new()
             }
             Err(_) => {
@@ -582,6 +578,199 @@ impl std::error::Error for Refusal {
             Self::Peer(source) => Some(source),
             Self::Random(source) => Some(source),
             _ => None,
+        }
+    }
+}
+
+/// A negotiation's request for the addresses of the DNS name its client gave.
+#[derive(Debug)]
+struct HostLookup {
+    name: String,
+    /// The signaling client's per-IP key.
+    ip_key: u128,
+    /// Gets the addresses; dropped unanswered when the lookup is refused.
+    reply: AddressReply,
+}
+
+/// The lookup task's state: the addresses of recent successful lookups, and the lookups running
+/// or waiting, at most one per client IP key and [`MAX_HOST_LOOKUPS`] running at once. Requests
+/// for a name already pending share its lookup.
+#[derive(Default)]
+struct HostLookups {
+    /// The addresses of successful lookups by name, with when they expire.
+    cache: BTreeMap<String, (Instant, Vec<IpAddr>)>,
+    /// The cached names by expiry, the first expiring first.
+    expiries: BTreeSet<(Instant, String)>,
+    /// The names with a lookup running or waiting: the IP key that asked first, and every reply
+    /// waiting for the addresses.
+    pending: BTreeMap<String, (u128, Vec<AddressReply>)>,
+    /// The IP keys of the pending lookups.
+    keys: BTreeSet<u128>,
+    /// The pending names whose lookup has not started, oldest first.
+    waiting: VecDeque<String>,
+    /// The running lookups: the name and what its blocking thread gave.
+    running: JoinSet<(String, Resolved)>,
+}
+
+/// Where a lookup's addresses go.
+type AddressReply = oneshot::Sender<Vec<IpAddr>>;
+
+/// What a lookup's blocking thread gave.
+type Resolved = Result<io::Result<Vec<IpAddr>>, JoinError>;
+
+impl HostLookups {
+    /// Spawns the lookup task; it ends once every sender is gone, and a lookup still running then
+    /// keeps only its blocking thread, until the OS resolver returns.
+    fn spawn() -> mpsc::Sender<HostLookup> {
+        let (requests, received) = mpsc::channel(LOOKUP_QUEUE);
+        tokio::spawn(Self::default().run(received));
+        requests
+    }
+
+    /// Serves requests and finished lookups until every sender is gone.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a lookup task only awaits its blocking thread and is never aborted"
+    )]
+    async fn run(mut self, mut requests: mpsc::Receiver<HostLookup>) {
+        loop {
+            tokio::select! {
+                request = requests.recv() => {
+                    let Some(request) = request else { break };
+                    self.request(request, clock::now());
+                }
+                Some(done) = self.running.join_next(), if !self.running.is_empty() => {
+                    let (name, looked_up) = done.expect("a lookup task does not fail");
+                    self.finish(name, looked_up, clock::now());
+                }
+            }
+        }
+    }
+
+    /// Answers the requests waiting for `name` with what its lookup gave, keeps the addresses
+    /// of a success, and starts the next lookups.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a running name stays pending until its lookup finishes"
+    )]
+    fn finish(
+        &mut self,
+        name: String,
+        looked_up: Result<io::Result<Vec<IpAddr>>, JoinError>,
+        now: Instant,
+    ) {
+        let addrs = match looked_up {
+            Ok(Ok(addrs)) => addrs,
+            Ok(Err(e)) => {
+                debug!(
+                    host = %name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "nethernet host lookup failed"
+                );
+                Vec::new()
+            }
+            Err(e) => {
+                debug!(
+                    host = %name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "nethernet host lookup task failed"
+                );
+                Vec::new()
+            }
+        };
+        let (ip_key, replies) = self
+            .pending
+            .remove(&name)
+            .expect("a running name is pending");
+        self.keys.remove(&ip_key);
+        for reply in replies {
+            if reply.send(addrs.clone()).is_err() {
+                trace!(host = %name, "nethernet host lookup withdrawn");
+            }
+        }
+        if !addrs.is_empty() {
+            self.keep(name, addrs, now);
+        }
+        self.start();
+    }
+
+    /// Keeps the addresses of `name` for [`HOST_CACHE_LIFETIME`], unless the cache is full.
+    fn keep(&mut self, name: String, addrs: Vec<IpAddr>, now: Instant) {
+        self.expire(now);
+        if self.cache.len() >= MAX_CACHED_HOSTS {
+            return;
+        }
+        let expires = now.checked_add(HOST_CACHE_LIFETIME).unwrap_or(now);
+        self.expiries.insert((expires, name.clone()));
+        self.cache.insert(name, (expires, addrs));
+    }
+
+    /// Answers `request` from the cache, adds it to the pending lookup of its name, or queues a
+    /// lookup when its IP key has none pending; otherwise drops its reply.
+    fn request(&mut self, request: HostLookup, now: Instant) {
+        self.expire(now);
+        let HostLookup {
+            name,
+            ip_key,
+            reply,
+        } = request;
+        if let Some((_, addrs)) = self.cache.get(&name) {
+            if reply.send(addrs.clone()).is_err() {
+                trace!(host = %name, "nethernet host lookup withdrawn");
+            }
+            return;
+        }
+        if let Some((_, replies)) = self.pending.get_mut(&name) {
+            replies.push(reply);
+            return;
+        }
+        if !self.keys.insert(ip_key) {
+            debug!(host = %name, "nethernet host lookup refused: one is pending for the client");
+            return;
+        }
+        self.pending.insert(name.clone(), (ip_key, vec![reply]));
+        self.waiting.push_back(name);
+        self.start();
+    }
+
+    /// Removes the cached names whose time has come.
+    fn expire(&mut self, now: Instant) {
+        while self
+            .expiries
+            .first()
+            .is_some_and(|(expires, _)| *expires <= now)
+            && let Some((_, name)) = self.expiries.pop_first()
+        {
+            self.cache.remove(&name);
+        }
+    }
+
+    /// Starts waiting lookups while fewer than [`MAX_HOST_LOOKUPS`] run. A lookup nobody waits
+    /// for any more is dropped instead.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a waiting name stays pending until its lookup finishes"
+    )]
+    fn start(&mut self) {
+        while self.running.len() < MAX_HOST_LOOKUPS
+            && let Some(name) = self.waiting.pop_front()
+        {
+            let (ip_key, replies) = self
+                .pending
+                .get_mut(&name)
+                .expect("a waiting name is pending");
+            replies.retain(|reply| !reply.is_closed());
+            if replies.is_empty() {
+                let ip_key = *ip_key;
+                self.pending.remove(&name);
+                self.keys.remove(&ip_key);
+                continue;
+            }
+            let looked_up = name.clone();
+            self.running.spawn(async move {
+                let addrs = tokio::task::spawn_blocking(move || lookup(&looked_up)).await;
+                (name, addrs)
+            });
         }
     }
 }
@@ -1069,7 +1258,7 @@ pub(crate) async fn start(
         public_ip: settings.public_ip,
         udp_addrs,
         driver: driver.commands.clone(),
-        lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+        lookups: HostLookups::spawn(),
     };
     let offers = tokio::spawn(offers.run(offers_rx));
     Ok((Handle { signaling, offers }, driver))
@@ -1090,7 +1279,7 @@ fn signaling_socket(addr: SocketAddr) -> String {
 /// it on the blocking pool.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the offer task runs it on the blocking pool"
+    reason = "off-tick: the lookup task runs it on the blocking pool"
 )]
 fn lookup(name: &str) -> io::Result<Vec<IpAddr>> {
     Ok((name, 0)
@@ -1635,7 +1824,7 @@ pub(crate) mod tests {
             public_ip: None,
             udp_addrs: vec![server],
             driver,
-            lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+            lookups: HostLookups::spawn(),
         });
         let (reply, replied) = oneshot::channel();
         let offer = Offer {
@@ -1688,7 +1877,7 @@ pub(crate) mod tests {
                 public_ip: None,
                 udp_addrs: Vec::new(),
                 driver,
-                lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+                lookups: HostLookups::spawn(),
             };
             let client = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
@@ -1756,7 +1945,7 @@ pub(crate) mod tests {
                 public_ip: None,
                 udp_addrs: vec![addr],
                 driver: driver.commands.clone(),
-                lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+                lookups: HostLookups::spawn(),
             };
             let serving = tokio::spawn(async move { while driver.serve().await {} });
 
@@ -1784,7 +1973,7 @@ pub(crate) mod tests {
             public_ip,
             udp_addrs: vec![SocketAddr::from((Ipv4Addr::LOCALHOST, port))],
             driver: driver.commands.clone(),
-            lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+            lookups: HostLookups::spawn(),
         };
         let serving = tokio::spawn(async move { while driver.serve().await {} });
         (offers, port, serving)
@@ -1836,20 +2025,21 @@ pub(crate) mod tests {
             let (offers, port, serving) = serving_offers(None);
             let first = SocketAddr::from((Ipv4Addr::new(192, 168, 0, 160), port));
             let at = |ip: IpAddr| SocketAddr::new(ip, port);
+            let client = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4));
             let same = Host::Ip(first.ip());
-            assert_eq!(offers.candidates(first, Some(same)).await, [first]);
+            assert_eq!(offers.candidates(first, Some(same), client).await, [first]);
             let v6 = Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST));
-            assert_eq!(offers.candidates(first, Some(v6)).await, [first]);
-            assert_eq!(offers.candidates(first, None).await, [first]);
+            assert_eq!(offers.candidates(first, Some(v6), client).await, [first]);
+            assert_eq!(offers.candidates(first, None, client).await, [first]);
             let name = Host::Name("localhost".to_owned());
             let loopback = at(IpAddr::V4(Ipv4Addr::LOCALHOST));
             assert_eq!(
-                offers.candidates(first, Some(name)).await,
+                offers.candidates(first, Some(name), client).await,
                 [first, loopback]
             );
             let mapped = Host::Ip(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped()));
             assert_eq!(
-                offers.candidates(first, Some(mapped)).await,
+                offers.candidates(first, Some(mapped), client).await,
                 [first, loopback]
             );
             serving.abort();
@@ -1859,9 +2049,102 @@ pub(crate) mod tests {
             let first = offers.advertised(first.ip()).unwrap();
             assert_eq!(first, SocketAddr::new(public, port));
             let given = Host::Ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
-            assert_eq!(offers.candidates(first, Some(given)).await, [first]);
+            assert_eq!(offers.candidates(first, Some(given), client).await, [first]);
             serving.abort();
         });
+    }
+
+    /// A request for the addresses of `name` from the client IP key `ip_key`, and where its
+    /// answer arrives.
+    fn host_lookup(name: &str, ip_key: u128) -> (HostLookup, oneshot::Receiver<Vec<IpAddr>>) {
+        let (reply, answer) = oneshot::channel();
+        let request = HostLookup {
+            name: name.to_owned(),
+            ip_key,
+            reply,
+        };
+        (request, answer)
+    }
+
+    /// One client IP key runs or waits for one lookup at a time, so names whose lookups hang
+    /// cannot take every lookup from one address; another client asking for the same name
+    /// shares the lookup, and a finished lookup frees the key.
+    #[test]
+    fn a_client_ip_has_one_host_lookup_pending_at_a_time() {
+        run(async {
+            let mut lookups = HostLookups::default();
+            let now = clock::now();
+            let (first, mut first_answer) = host_lookup("localhost", 1);
+            lookups.request(first, now);
+            let (second, mut second_answer) = host_lookup("other.example", 1);
+            lookups.request(second, now);
+            assert!(matches!(
+                second_answer.try_recv(),
+                Err(oneshot::error::TryRecvError::Closed)
+            ));
+            let (shared, mut shared_answer) = host_lookup("localhost", 2);
+            lookups.request(shared, now);
+            assert_eq!(lookups.running.len(), 1);
+            assert_eq!(lookups.keys, BTreeSet::from([1]));
+
+            let (name, looked_up) = lookups.running.join_next().await.unwrap().unwrap();
+            lookups.finish(name, looked_up, now);
+            let addrs = first_answer.try_recv().unwrap();
+            assert!(
+                addrs.contains(&IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                "{addrs:?}"
+            );
+            assert_eq!(shared_answer.try_recv().unwrap(), addrs);
+            assert!(lookups.pending.is_empty());
+            assert!(lookups.keys.is_empty());
+            assert!(lookups.waiting.is_empty());
+        });
+    }
+
+    /// A name that resolved is answered from the cache without a lookup, from any client,
+    /// until its time is over; then it is looked up again.
+    #[test]
+    fn a_resolved_host_is_answered_from_the_cache_until_it_expires() {
+        run(async {
+            let mut lookups = HostLookups::default();
+            let now = clock::now();
+            let (first, _first_answer) = host_lookup("localhost", 1);
+            lookups.request(first, now);
+            let (name, looked_up) = lookups.running.join_next().await.unwrap().unwrap();
+            lookups.finish(name, looked_up, now);
+
+            let (cached, mut cached_answer) = host_lookup("localhost", 2);
+            lookups.request(cached, now);
+            assert!(lookups.running.is_empty());
+            let addrs = cached_answer.try_recv().unwrap();
+            assert!(
+                addrs.contains(&IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                "{addrs:?}"
+            );
+
+            let later = now + HOST_CACHE_LIFETIME;
+            let (expired, _expired_answer) = host_lookup("localhost", 2);
+            lookups.request(expired, later);
+            assert_eq!(lookups.running.len(), 1);
+            assert!(lookups.cache.is_empty());
+            assert!(lookups.expiries.is_empty());
+        });
+    }
+
+    /// While the cache is full, a new name's addresses are not kept, so names a client makes up
+    /// cannot push out the names already kept.
+    #[test]
+    fn a_full_host_cache_keeps_its_names() {
+        let mut lookups = HostLookups::default();
+        let now = clock::now();
+        let addr = vec![IpAddr::V4(Ipv4Addr::LOCALHOST)];
+        for n in 0..MAX_CACHED_HOSTS {
+            lookups.keep(format!("host{n}.example"), addr.clone(), now);
+        }
+        lookups.keep("new.example".to_owned(), addr, now);
+        assert_eq!(lookups.cache.len(), MAX_CACHED_HOSTS);
+        assert!(lookups.cache.contains_key("host0.example"));
+        assert!(!lookups.cache.contains_key("new.example"));
     }
 
     /// A signaling port that is taken stops the start with the socket named.

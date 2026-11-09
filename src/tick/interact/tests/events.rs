@@ -923,7 +923,8 @@ fn villager(h: &mut Harness) -> (crate::entity::Id, u64) {
             Value::List(crate::nbt::List::Compound(vec![offer])),
         )]),
         &crate::custom::Registry::default(),
-    );
+    )
+    .unwrap();
     let npc = entity::Npc::Villager {
         profession: 1,
         offers,
@@ -1400,7 +1401,12 @@ fn direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs
             let world = crate::world::Id::DEFAULT;
             let stone = Kind::Stone.default_state();
             cx.default_world_mut().set_block(PLACED, stone).unwrap();
-            cx.explode(world, Vec3::new(-0.5, -60.0, 0.5), 1.0).unwrap();
+            cx.explode(crate::action::Explode::new(
+                world,
+                Vec3::new(-0.5, -60.0, 0.5),
+                1.0,
+            ))
+            .unwrap();
             let p = cx.player_mut(me()).unwrap();
             let left = p
                 .inventory_mut(crate::inventory::Kind::Main)
@@ -1468,8 +1474,12 @@ fn a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick() {
     let mut cx = Context {
         state: &mut h.state,
     };
-    cx.explode(crate::world::Id::DEFAULT, Vec3::new(0.5, -60.0, 0.5), 2.0)
-        .unwrap();
+    cx.explode(crate::action::Explode::new(
+        crate::world::Id::DEFAULT,
+        Vec3::new(0.5, -60.0, 0.5),
+        2.0,
+    ))
+    .unwrap();
     assert!(HEARD.with(Cell::take).is_empty(), "the call raised nothing");
     assert!(!h.player().is_alive());
     h.run(Vec::new());
@@ -1562,7 +1572,7 @@ fn breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total() {
         h.run(Vec::new());
         use_on(&mut h, TARGET, Face::West);
         assert!(h.player().window().is_some(), "the box is open");
-        let _destroyed = destroy(&mut h.state, 0, TARGET, cause.clone());
+        let _destroyed = destroy(&mut h.state, 0, TARGET, &cause);
         h.run(Vec::new());
         assert_eq!(every_diamond(&mut h), 64, "{cause:?}");
     }
@@ -1582,7 +1592,7 @@ fn a_quiet_explosion_closes_windows_without_inventory_close() {
         use_on(&mut h, TARGET, Face::West);
         assert!(h.player().window().is_some(), "the chest is open");
         let cause = Destroy::Explosion { size: 1.0, raise };
-        assert!(destroy(&mut h.state, 0, TARGET, cause));
+        assert!(destroy(&mut h.state, 0, TARGET, &cause));
         assert!(h.player().window().is_none(), "{raise:?}");
         assert_eq!(notes(SEEN).len(), heard, "{raise:?}");
     }
@@ -1832,7 +1842,12 @@ fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
         .unwrap();
     cx.add_particle(crate::world::Id::DEFAULT, at, crate::world::Particle::Flame)
         .unwrap();
-    cx.explode(crate::world::Id::DEFAULT, at, 1.0).unwrap();
+    cx.explode(crate::action::Explode::new(
+        crate::world::Id::DEFAULT,
+        at,
+        1.0,
+    ))
+    .unwrap();
     let heard = HEARD.with(Cell::take);
     assert!(
         !heard

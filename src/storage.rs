@@ -104,7 +104,7 @@ const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
 const MAX_CHUNK_SUFFIX_BYTES: usize = 3;
 /// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
 /// name on Linux and the 255 UTF-16 units on Windows.
-pub(crate) const MAX_FILE_NAME: usize = 250;
+pub(crate) const MAX_FILE_NAME_BYTES: usize = 250;
 /// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
 /// `save::new_place` gives no place for a new one past them).
 pub(crate) const MAX_WORLDS: usize = 1024;
@@ -1976,13 +1976,13 @@ fn open_read(
 /// Whether `name` is a world name Anchor can keep as a file name on Windows and Linux alike
 /// (`data/worlds/<name>.redb`), by the rule of
 /// [`world::Error::InvalidName`](crate::world::Error::InvalidName) with the length limit
-/// [`MAX_FILE_NAME`]. Names that differ only in letter case name one file on Windows, so they
-/// are one world on every system ([`world_name_key`]). A name of the form of a Windows 8.3
+/// [`MAX_FILE_NAME_BYTES`]. Names that differ only in letter case name one file on Windows, so
+/// they are one world on every system ([`world_name_key`]). A name of the form of a Windows 8.3
 /// short name ([`is_short_name_form`]) is refused: Windows takes it for the alias of another file
 /// or folder, such as the backup folder of another world.
 pub(crate) fn is_world_file_name(name: &str) -> bool {
     if name.is_empty()
-        || name.len() > MAX_FILE_NAME
+        || name.len() > MAX_FILE_NAME_BYTES
         || name.starts_with(' ')
         || name.ends_with(['.', ' '])
         || name
@@ -2027,12 +2027,33 @@ fn is_short_name_form(name: &str) -> bool {
             .any(|pair| matches!(pair, [b'~', digit] if digit.is_ascii_digit()))
 }
 
-/// What world names that name one file have in common: the name in one letter case.
+/// What world names that name one file have in common: the name in one letter case, each
+/// character folded on its own ([`fold_case`]) as NTFS compares names, one character to one. So
+/// `straße` and `STRASSE`, or the Kelvin sign and `k`, stay apart, as they are two files on
+/// Windows and Linux alike.
 pub(crate) fn world_name_key(name: &str) -> String {
-    name.chars()
-        .flat_map(char::to_uppercase)
-        .flat_map(char::to_lowercase)
-        .collect()
+    name.chars().map(fold_case).collect()
+}
+
+/// The one-letter-case form of `c` in [`world_name_key`]: the lowercase of its uppercase when both
+/// are one character and that lowercase has the same uppercase (`A` and `a` give `a`); the
+/// lowercase of `c` when its uppercase is more than one character (a titlecase letter with iota
+/// subscript gives its lowercase, as both share one uppercase on NTFS); else `c` itself (`ß`, the
+/// Kelvin sign).
+fn fold_case(c: char) -> char {
+    let Some(upper) = single(c.to_uppercase()) else {
+        return single(c.to_lowercase()).unwrap_or(c);
+    };
+    match single(upper.to_lowercase()) {
+        Some(lower) if single(lower.to_uppercase()) == Some(upper) => lower,
+        _ => c,
+    }
+}
+
+/// The one character `chars` holds, or `None` if it holds more or none.
+fn single(mut chars: impl Iterator<Item = char>) -> Option<char> {
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
 }
 
 /// The copies of the data file at `place` a replay may start from: the file, then its backups
@@ -2069,6 +2090,7 @@ pub(crate) mod tests {
     use super::seal::seal;
     use crate::clock;
     use crate::protocol::Rng;
+    use crate::save::tests::TempDir;
 
     thread_local! {
         /// The integrity checks this thread's starts made.
@@ -2852,17 +2874,13 @@ pub(crate) mod tests {
         assert!(old > 100 && new > 100, "old {old}, new {new}");
     }
 
-    /// A per-test folder under the system temp folder, removed on drop.
-    struct TempDir(PathBuf);
+    /// A per-test data folder holding the data file the tests open.
+    struct DataDir(TempDir);
 
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    impl TempDir {
+    impl DataDir {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("anchor-storage-{name}-{}", std::process::id()));
-            std::fs::remove_dir_all(&dir).unwrap_or(());
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
+            Self(TempDir::new(&format!("storage-{name}")))
         }
 
         /// Backup names, oldest first.
@@ -2888,7 +2906,7 @@ pub(crate) mod tests {
 
         /// The data file the tests open.
         fn place(&self) -> Place {
-            Place::data(&self.0, MAIN_FILE)
+            Place::data(&self.0.0, MAIN_FILE)
         }
 
         fn set_world(&self, bytes: &[u8]) {
@@ -2896,16 +2914,9 @@ pub(crate) mod tests {
         }
     }
 
-    impl Drop for TempDir {
-        #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap_or(());
-        }
-    }
-
     /// Opens the file of `dir` as `start` does, and steps its start backup, if one began, to its
     /// end.
-    fn start_whole(dir: &TempDir, start: Start) -> Storage {
+    fn start_whole(dir: &DataDir, start: Start) -> Storage {
         let mut storage = Storage::open(&dir.place(), start).unwrap();
         while storage.is_backing_up() {
             storage.backup_step().unwrap();
@@ -2915,7 +2926,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_new_folder_starts_empty_and_keeps_what_was_committed() {
-        let dir = TempDir::new("new");
+        let dir = DataDir::new("new");
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         assert!(
             !storage.is_backing_up(),
@@ -2949,7 +2960,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_second_process_cannot_open_the_file() {
-        let dir = TempDir::new("in-use");
+        let dir = DataDir::new("in-use");
         start_whole(&dir, Start::checked(StartBackup::Make))
             .close()
             .unwrap();
@@ -2967,7 +2978,7 @@ pub(crate) mod tests {
     fn backups_are_capped_at_max_backups_and_never_overwritten() {
         let default = Start::checked(StartBackup::Make).max_backups;
         for max_backups in [default, 1, 5] {
-            let dir = TempDir::new(&format!("backups-{max_backups}"));
+            let dir = DataDir::new(&format!("backups-{max_backups}"));
             let start = Start {
                 max_backups,
                 ..Start::checked(StartBackup::Make)
@@ -2999,7 +3010,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_start_without_backups_keeps_no_copy() {
-        let dir = TempDir::new("no-backups");
+        let dir = DataDir::new("no-backups");
         for _ in 0..2 {
             let storage = Storage::open(&dir.place(), Start::checked(StartBackup::Skip)).unwrap();
             assert!(!storage.is_backing_up());
@@ -3011,7 +3022,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_start_removes_what_a_killed_backup_left() {
-        let dir = TempDir::new("backup-killed");
+        let dir = DataDir::new("backup-killed");
         start_whole(&dir, Start::checked(StartBackup::Skip))
             .close()
             .unwrap();
@@ -3034,7 +3045,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_leftover_temporary_file_is_no_backup_and_the_start_works() {
-        let dir = TempDir::new("backup-leftover");
+        let dir = DataDir::new("backup-leftover");
         let mut storage = start_whole(&dir, Start::checked(StartBackup::Skip));
         let mut batch = Batch::default();
         batch.put(Key::Meta, seal(META_KEY, &Meta::at(9)).unwrap());
@@ -3057,7 +3068,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_backup_folder_that_fails_costs_only_the_start_backup() {
-        let dir = TempDir::new("backup-folder-fails");
+        let dir = DataDir::new("backup-folder-fails");
         start_whole(&dir, Start::checked(StartBackup::Skip))
             .close()
             .unwrap();
@@ -3089,7 +3100,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_start_and_a_stop_never_compact_the_file() {
-        let dir = TempDir::new("start-compact");
+        let dir = DataDir::new("start-compact");
         let len = |path: &Path| std::fs::metadata(path).unwrap().len();
         let world = dir.place().file;
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
@@ -3126,7 +3137,7 @@ pub(crate) mod tests {
 
     /// Writes a player to a new data file in `dir`, closes it after a normal stop and damages
     /// the player's bytes, which only redb's integrity check reads at start; returns the bytes.
-    fn damage_a_closed_file(dir: &TempDir) -> Vec<u8> {
+    fn damage_a_closed_file(dir: &DataDir) -> Vec<u8> {
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         // Random letters compress little, so the value's body is long enough to be found.
         let mut rng = Rng(5);
@@ -3151,7 +3162,7 @@ pub(crate) mod tests {
     }
 
     fn refuses_a_damaged_file(start: StartBackup) {
-        let dir = TempDir::new("damaged");
+        let dir = DataDir::new("damaged");
         let bytes = damage_a_closed_file(&dir);
         let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
         assert!(e.is_damage(), "{e:?}");
@@ -3190,7 +3201,7 @@ pub(crate) mod tests {
     /// refused and left as it was.
     #[test]
     fn a_file_left_by_a_crash_starts_and_one_damaged_is_refused() {
-        let dir = TempDir::new("crash-left");
+        let dir = DataDir::new("crash-left");
         let disk = Disk::default();
         let mut storage = memory(&disk);
         let mut batch = large_batch(&mut Rng(6), 2, 1);
@@ -3226,7 +3237,7 @@ pub(crate) mod tests {
     fn a_start_checks_and_backs_up_the_file_as_its_settings_say() {
         use IntegrityCheck::{AfterUncleanShutdown, Always, Never};
         use StartBackup::{Make, Skip};
-        let dir = TempDir::new("start-policy");
+        let dir = DataDir::new("start-policy");
         // (backups, integrity-check) → (checked, backing up), after a normal stop.
         for (backup, check, checked, backing_up) in [
             (Skip, Always, 1, false),
@@ -3273,7 +3284,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn only_a_file_closed_after_a_normal_stop_skips_the_check_after_an_unclean_one() {
-        let dir = TempDir::new("closed-mark");
+        let dir = DataDir::new("closed-mark");
         let world = dir.place().file;
         let after_unclean = || checks(&world, IntegrityCheck::AfterUncleanShutdown);
         // No file: nothing to check.
@@ -3322,7 +3333,7 @@ pub(crate) mod tests {
     /// process opens the file between the check and the open.
     #[test]
     fn a_checked_file_stays_locked_until_its_open_closes() {
-        let dir = TempDir::new("checked-lock");
+        let dir = DataDir::new("checked-lock");
         let place = dir.place();
         start_whole(&dir, Start::checked(StartBackup::Skip))
             .close()
@@ -3338,7 +3349,7 @@ pub(crate) mod tests {
     }
 
     fn refuses_a_file_that_is_not_redb(start: StartBackup) {
-        let dir = TempDir::new(&format!("not-redb-{start:?}"));
+        let dir = DataDir::new(&format!("not-redb-{start:?}"));
         let max_backups = Start::checked(StartBackup::Make).max_backups;
         for _ in 0..=max_backups {
             start_whole(&dir, Start::checked(StartBackup::Make))
@@ -3369,7 +3380,7 @@ pub(crate) mod tests {
     }
 
     fn refuses_a_newer_format(start: Start) {
-        let dir = TempDir::new("newer");
+        let dir = DataDir::new("newer");
         let mut storage = Storage::open(&dir.place(), start).unwrap();
         let mut sealed = seal(META_KEY, &Meta::at(1)).unwrap();
         sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
@@ -3438,7 +3449,7 @@ pub(crate) mod tests {
     /// before, and a second start changes nothing.
     #[test]
     fn a_file_later_than_the_main_file_rolls_back_to_the_commit_before_its_last() {
-        let dir = TempDir::new("settle");
+        let dir = DataDir::new("settle");
         let mut rng = Rng(0x5e77_0001);
         let mut storage = start_whole(&dir, Start::checked(StartBackup::Skip));
         let mut model = BTreeMap::new();
@@ -3525,7 +3536,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_file_the_main_file_never_saved_is_removed_and_one_without_a_savepoint_is_refused() {
-        let dir = TempDir::new("settle-made");
+        let dir = DataDir::new("settle-made");
         let mut rng = Rng(0x5e77_0002);
         let mut model = BTreeMap::new();
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Skip)).unwrap();
@@ -3565,9 +3576,9 @@ pub(crate) mod tests {
     /// back; without a main file there is no save to compare with.
     #[test]
     fn a_reading_path_refuses_a_file_later_than_the_main_file() {
-        let dir = TempDir::new("settled");
+        let dir = DataDir::new("settled");
         // The players file stands in for the main file, and the test's file for a world's.
-        let players = Place::data(&dir.0, PLAYERS_FILE);
+        let players = Place::data(&dir.0.0, PLAYERS_FILE);
         let main = players.file.clone();
         let mut rng = Rng(0x5e77_0003);
         let mut model = BTreeMap::new();
@@ -3594,8 +3605,8 @@ pub(crate) mod tests {
     /// An export's snapshot holds the main file too, so no server starts while it is open.
     #[test]
     fn a_snapshot_keeps_the_main_file_from_a_start() {
-        let dir = TempDir::new("snapshot-main");
-        let main = Place::data(&dir.0, PLAYERS_FILE);
+        let dir = DataDir::new("snapshot-main");
+        let main = Place::data(&dir.0.0, PLAYERS_FILE);
         let mut storage = Storage::open(&main, Start::checked(StartBackup::Skip)).unwrap();
         let mut batch = Batch::default();
         batch.put(Key::Meta, seal(META_KEY, &Meta::at(2)).unwrap());
@@ -3616,13 +3627,13 @@ pub(crate) mod tests {
 
     #[test]
     fn a_world_name_is_a_file_name_on_windows_and_linux() {
-        let longest = "w".repeat(MAX_FILE_NAME);
+        let longest = "w".repeat(MAX_FILE_NAME_BYTES);
         for good in [
             "world", "Lobby 2", "로비", "a.b", "con1", "comx", "lpt10", "_", &longest,
         ] {
             assert!(is_world_file_name(good), "{good}");
         }
-        let too_long = "w".repeat(MAX_FILE_NAME + 1);
+        let too_long = "w".repeat(MAX_FILE_NAME_BYTES + 1);
         for bad in [
             "",
             "a/b",
@@ -3667,6 +3678,21 @@ pub(crate) mod tests {
                 .join("worlds")
                 .join("Lobby")
         );
+    }
+
+    /// Names are one world only when NTFS takes them for one file: letters folded one to one,
+    /// so a letter whose uppercase is two letters, or a sign that only looks like a letter, stays
+    /// apart. An ASCII name keeps its lowercase key, and so its default seed.
+    #[test]
+    fn world_names_fold_case_one_character_at_a_time() {
+        assert_eq!(world_name_key("Lobby"), "lobby");
+        assert_eq!(world_name_key("ΣΊΣΥΦΟΣ"), world_name_key("σίσυφος"));
+        assert_eq!(world_name_key("ǅ"), world_name_key("ǆ"));
+        assert_eq!(world_name_key("ᾼ"), world_name_key("ᾳ"));
+        assert_ne!(world_name_key("straße"), world_name_key("STRASSE"));
+        assert_ne!(world_name_key("straße"), world_name_key("strasse"));
+        assert_ne!(world_name_key("\u{212a}"), world_name_key("k"));
+        assert_ne!(world_name_key("\u{149}"), world_name_key("\u{2bc}n"));
     }
 
     /// A name in the form of a Windows short name (`~` and a digit) is no world name, as it can
@@ -3793,7 +3819,7 @@ pub(crate) mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: a test opens a backup")]
     fn an_online_backup_holds_the_commit_it_began_at_table_by_table() {
-        let dir = TempDir::new("online");
+        let dir = DataDir::new("online");
         let mut rng = Rng(0xbac0_0001);
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         let mut model = BTreeMap::new();
@@ -3831,7 +3857,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_failure_mid_copy_leaves_no_backup_and_the_file_works_on() {
-        let dir = TempDir::new("online-fault");
+        let dir = DataDir::new("online-fault");
         let backups = dir.place().backups;
         let mut rng = Rng(0xbac0_0002);
         let disk = Disk::default();
@@ -3867,7 +3893,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_reopen_of_the_file_stops_the_backup_and_leaves_no_file_of_it() {
-        let dir = TempDir::new("online-reopen");
+        let dir = DataDir::new("online-reopen");
         let backups = dir.place().backups;
         let mut rng = Rng(0xbac0_0003);
         let disk = Disk::default();
@@ -3892,7 +3918,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_second_backup_is_refused_while_one_is_being_made() {
-        let dir = TempDir::new("online-second");
+        let dir = DataDir::new("online-second");
         let backups = dir.place().backups;
         let disk = Disk::default();
         let mut storage = memory(&disk);
@@ -3908,7 +3934,7 @@ pub(crate) mod tests {
 
     #[test]
     fn online_and_start_backups_keep_the_newest_together() {
-        let dir = TempDir::new("online-kept");
+        let dir = DataDir::new("online-kept");
         let backups = dir.place().backups;
         start_whole(&dir, Start::checked(StartBackup::Make))
             .close()
@@ -4043,7 +4069,7 @@ pub(crate) mod tests {
         reason = "consistency: a measurement prints its results"
     )]
     fn measure_server_file() {
-        let dir = TempDir::new("measure");
+        let dir = DataDir::new("measure");
         let mut rng = Rng(77);
         let chunks: Vec<(Key, Vec<u8>)> = (0..10_000)
             .map(|i| {
@@ -4109,7 +4135,7 @@ pub(crate) mod tests {
     /// `dir` reaches `target` bytes; returns how many.
     fn fill_world(
         storage: &mut Storage,
-        dir: &TempDir,
+        dir: &DataDir,
         records: &[ChunkRecord],
         target: u64,
     ) -> u32 {
@@ -4152,7 +4178,7 @@ pub(crate) mod tests {
         let mut rng = Rng(0x5747_0001);
         let records: Vec<ChunkRecord> = (0..64).map(|_| terrain_chunk(&mut rng)).collect();
         for target in [256_u64 << 20, 1 << 30, 4 << 30] {
-            let dir = TempDir::new(&format!("start-cost-{target}"));
+            let dir = DataDir::new(&format!("start-cost-{target}"));
             let world = dir.place().file;
             let mut storage =
                 Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
@@ -4250,7 +4276,7 @@ pub(crate) mod tests {
             Place::data(&data, MAIN_FILE),
             Place::data(&data, PLAYERS_FILE),
         ];
-        for name in crate::save::world_files(&data).unwrap() {
+        for name in crate::save::world_names(&data).unwrap() {
             places.push(Place::world(&data, &name));
         }
         let name = |place: &Place| {

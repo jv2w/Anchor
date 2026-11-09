@@ -618,7 +618,7 @@ impl Stack {
                     .map(|&(e, level)| {
                         // `checked` keeps every level at most `MAX_ENCHANTMENT_LEVEL`, a short.
                         Compound::from([
-                            ("id".to_owned(), Value::Short(e.id())),
+                            ("id".to_owned(), Value::Short(i16::from(e.id()))),
                             ("lvl".to_owned(), Value::Short(level.cast_signed())),
                         ])
                     })
@@ -791,7 +791,7 @@ fn read_enchantment(entry: &Compound) -> Option<(Enchantment, u16)> {
         return None;
     };
     let level = u16::try_from(*level).ok().filter(|l| *l > 0)?;
-    Some((Enchantment::from_id(*id)?, level))
+    Some((Enchantment::from_id(u8::try_from(*id).ok()?)?, level))
 }
 
 /// What the client shows of a stored item compound: its type, count, slot and custom name.
@@ -824,7 +824,7 @@ mod tests {
     use crate::item::Kind;
 
     /// The enchantment ID of looting.
-    const LOOTING: i16 = 14;
+    const LOOTING: u8 = 14;
 
     fn kind(k: Kind) -> Type {
         k.default_type()
@@ -1016,9 +1016,9 @@ mod tests {
     #[test]
     fn unknown_enchantment_entries_stay_and_known_ones_count() {
         assert_eq!(Enchantment::from_id(LOOTING), None, "looting is not known");
-        let entry = |id: i16, level: i16| {
+        let entry = |id: u8, level: i16| {
             Compound::from([
-                ("id".to_owned(), Value::Short(id)),
+                ("id".to_owned(), Value::Short(i16::from(id))),
                 ("lvl".to_owned(), Value::Short(level)),
             ])
         };
@@ -1058,7 +1058,10 @@ mod tests {
         };
         assert_eq!(sword.with_extra(Some(long)), Err(Error::NameTooLong));
         let sharpness = Compound::from([
-            ("id".to_owned(), Value::Short(Enchantment::Sharpness.id())),
+            (
+                "id".to_owned(),
+                Value::Short(i16::from(Enchantment::Sharpness.id())),
+            ),
             ("lvl".to_owned(), Value::Short(5)),
         ]);
         let raw = Extra {

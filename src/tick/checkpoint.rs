@@ -870,7 +870,7 @@ impl Codec for crate::effect::Type {
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Self::from_id(i32::from(u8::decode(r)?)).ok_or(Error::Format("effect"))
+        Self::from_id(u8::decode(r)?).ok_or(Error::Format("effect"))
     }
 }
 
@@ -880,7 +880,7 @@ impl Codec for crate::effect::Potion {
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Self::from_id(i32::from(u8::decode(r)?)).ok_or(Error::Format("potion"))
+        Self::from_id(u8::decode(r)?).ok_or(Error::Format("potion"))
     }
 }
 
@@ -901,7 +901,12 @@ impl Codec for crate::effect::Instance {
         let visible = Codec::decode(r)?;
         let ambient = Codec::decode(r)?;
         let infinite = Codec::decode(r)?;
-        Ok(Self::new(effect, duration, amplifier, visible, ambient).with_infinite(infinite))
+        let instance = Self::new(effect, duration, amplifier, visible, ambient);
+        Ok(if infinite {
+            instance.infinite()
+        } else {
+            instance
+        })
     }
 }
 
@@ -923,7 +928,7 @@ impl Codec for crate::entity::Id {
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Ok(Self::new(u32::decode(r)?, u32::decode(r)?))
+        Ok(Self::new(u32::decode(r)?, u64::decode(r)?))
     }
 }
 
@@ -943,7 +948,7 @@ impl Codec for crate::item::Enchantment {
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Self::from_id(i16::from(u8::decode(r)?)).ok_or(Error::Format("enchantment"))
+        Self::from_id(u8::decode(r)?).ok_or(Error::Format("enchantment"))
     }
 }
 
@@ -1174,6 +1179,7 @@ impl State {
             index: _,
             names: _,
             uuids: _,
+            addresses: _,
             listeners: _,
             tasks,
             data,
@@ -1200,11 +1206,11 @@ impl State {
             awake: _,
         } = self;
         let mut w = Writer::default();
+        settings.motd.encode(&mut w);
         settings.game_mode.encode(&mut w);
         settings.difficulty.encode(&mut w);
-        settings.max_players.encode(&mut w);
-        settings.motd.encode(&mut w);
         settings.world_views.encode(&mut w);
+        settings.max_players.encode(&mut w);
         started.encode(&mut w);
         next_runtime_id.encode(&mut w);
         let list: Vec<(&SessionId, &Player)> = players.iter().collect();
@@ -1227,6 +1233,7 @@ impl State {
         forms.encode(&mut w);
         w.opaque("open menus", menus.len());
         w.opaque("deferred callbacks", deferred.len());
+        catalog.checkpoint(&mut w);
         chunks.checkpoint(&mut w);
         saving.encode(&mut w);
         loading.encode(&mut w);
@@ -1235,7 +1242,6 @@ impl State {
         clock.encode(&mut w);
         trades.encode(&mut w);
         skin_budget.encode(&mut w);
-        catalog.checkpoint(&mut w);
         network.encode(&mut w);
         let (saved, kept) = worlds.iter().map(World::checkpoint).unzip();
         let (body, opaque) = w.into_parts();
@@ -1288,7 +1294,7 @@ impl State {
             .all(|(at, (w, s))| {
                 w.name() == s.name
                     && w.kind() == s.kind
-                    && crate::save::place(s.index) == at
+                    && crate::save::list_index(s.index) == at
                     && world::Id::new(s.index).is_some()
             })
         {
@@ -1326,11 +1332,11 @@ impl State {
     ) -> Result<()> {
         let mut r = Reader::new(&checkpoint.body, custom, entities);
         self.tick = checkpoint.tick;
+        self.settings.motd = Codec::decode(&mut r)?;
         self.settings.game_mode = Codec::decode(&mut r)?;
         self.settings.difficulty = Codec::decode(&mut r)?;
-        self.settings.max_players = Codec::decode(&mut r)?;
-        self.settings.motd = Codec::decode(&mut r)?;
         self.settings.world_views = Codec::decode(&mut r)?;
+        self.settings.max_players = Codec::decode(&mut r)?;
         self.started = Codec::decode(&mut r)?;
         self.next_runtime_id = Codec::decode(&mut r)?;
         let n = r.len()?;
@@ -1360,6 +1366,7 @@ impl State {
         }
         self.commands.restore(&mut r)?;
         self.forms = Codec::decode(&mut r)?;
+        self.catalog.restore(&mut r, &checkpoint.worlds)?;
         self.chunks.restore(&mut r, ground)?;
         self.chunks.index_views(&self.players);
         self.saving = Codec::decode(&mut r)?;
@@ -1369,7 +1376,6 @@ impl State {
         self.clock = Codec::decode(&mut r)?;
         self.trades = Codec::decode(&mut r)?;
         self.skin_budget = Codec::decode(&mut r)?;
-        self.catalog.restore(&mut r, &checkpoint.worlds)?;
         self.network.restore(Codec::decode(&mut r)?);
         if r.is_empty() {
             Ok(())
@@ -1653,6 +1659,20 @@ pub(super) mod tests {
         f32::NAN.encode(&mut w);
         let read = f32::decode(&mut Reader::new(&w.out, &custom, &entities));
         assert!(read.is_err(), "a NaN reads back as {read:?}");
+    }
+
+    /// Every enchantment reads back as itself and leaves no byte behind.
+    #[test]
+    fn enchantments_read_back() {
+        let custom = Registry::default();
+        let entities = Customs::default();
+        for &e in crate::item::Enchantment::all() {
+            let mut w = Writer::default();
+            e.encode(&mut w);
+            let mut r = Reader::new(&w.out, &custom, &entities);
+            assert_eq!(crate::item::Enchantment::decode(&mut r), Ok(e));
+            assert!(r.is_empty(), "{e:?} leaves no bytes");
+        }
     }
 
     /// NBT holds any float, an item's unknown tag a NaN too, so a checkpoint keeps an NBT float's

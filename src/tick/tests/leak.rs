@@ -52,8 +52,8 @@ struct Tables {
     chunks_idle: bool,
     extras: usize,
     saving_idle: bool,
-    /// Loaded chunks, viewer entries, spills.
-    block_entities: (usize, usize, usize),
+    /// The block entity tables' sizes.
+    block_entities: crate::tick::block_entity::Sizes,
     /// Every entity table, without its ID counters.
     entities: String,
     /// The trading sessions and their index, without the offer ID counter.
@@ -212,6 +212,7 @@ fn offers() -> trade::Offers {
         )]),
         &crate::custom::Registry::default(),
     )
+    .unwrap()
 }
 
 /// One cycle of session `n`: join, a form, every window, block entities placed and broken,
@@ -332,7 +333,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
             size: 4.0,
             raise: entity::Raise::Quiet,
         };
-        assert!(interact::destroy(state, 0, spot(i), cause), "{kind:?}");
+        assert!(interact::destroy(state, 0, spot(i), &cause), "{kind:?}");
     }
     for _ in 0..10 {
         run(state, output, &mut s, Vec::new());

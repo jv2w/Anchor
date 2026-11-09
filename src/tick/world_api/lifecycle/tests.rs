@@ -269,8 +269,8 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     let id = cx.create_world("arena", &arena(4)).unwrap();
     assert_ne!(id, old);
     assert_eq!(
-        crate::save::place(id.index()),
-        crate::save::place(old.index())
+        crate::save::list_index(id.index()),
+        crate::save::list_index(old.index())
     );
     // The default world moves; the settings' world may unload then.
     CANCEL.set(false);
@@ -953,8 +953,15 @@ fn tables(state: &State) -> Vec<usize> {
         state.settings.world_views.len(),
         state.awake.len(),
     ];
-    let (a, b, c) = state.rules.block_entities.sizes();
-    sizes.extend([a, b, c]);
+    let entities = state.rules.block_entities.sizes();
+    sizes.extend([
+        entities.chunks,
+        entities.changed,
+        entities.viewers,
+        entities.spilling,
+        entities.marked,
+        entities.spills,
+    ]);
     for w in state.worlds.iter() {
         sizes.extend([
             w.loaded_chunks().len(),
@@ -993,8 +1000,8 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         let mut cx = context(&mut state);
         let again = cx.create_world("arena", &arena(round)).unwrap();
         assert_eq!(
-            crate::save::place(again.index()),
-            crate::save::place(id.index())
+            crate::save::list_index(again.index()),
+            crate::save::list_index(id.index())
         );
         id = again;
         assert_eq!(cx.load_world("lobby", &Options::new()), Ok(lobby));
@@ -1060,8 +1067,8 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
     let new = cx.create_world("arena-2", &arena(2)).unwrap();
     assert_ne!(new, old);
     assert_eq!(
-        crate::save::place(new.index()),
-        crate::save::place(old.index())
+        crate::save::list_index(new.index()),
+        crate::save::list_index(old.index())
     );
     assert!(cx.world(old).is_none());
     assert_eq!(cx.unload_world(old), Err(world::Error::WorldNotLoaded));
@@ -1080,8 +1087,8 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
     let after = cx.create_world("arena-3", &arena(3)).unwrap();
     assert_ne!(after, lobby);
     assert_eq!(
-        crate::save::place(after.index()),
-        crate::save::place(lobby.index())
+        crate::save::list_index(after.index()),
+        crate::save::list_index(lobby.index())
     );
     assert!(cx.world(lobby).is_none());
     ticks(&mut state, &mut output, 2);
@@ -1200,8 +1207,8 @@ fn a_name_of_a_world_gone_and_one_not_gone_names_the_one_not_gone_after_a_restor
     // The lowest free place is the first one: the world gone named "b" keeps its place.
     let again = context(&mut state).create_world("b", &arena(3)).unwrap();
     assert_eq!(
-        crate::save::place(again.index()),
-        crate::save::place(a.index())
+        crate::save::list_index(again.index()),
+        crate::save::list_index(a.index())
     );
     let pool = crate::runtime::cpu_pool(1).unwrap();
     let mut copy = restored(&state, &pool);
@@ -1453,7 +1460,7 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
 fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
     let dir = crate::save::tests::TempDir::new("world-delete");
     let pool = crate::runtime::cpu_pool(1).unwrap();
-    let files = || crate::save::world_files(&dir.0).unwrap();
+    let files = || crate::save::world_names(&dir.0).unwrap();
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
         let mut cx = context(&mut state);
@@ -1513,7 +1520,7 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
 fn a_world_is_found_by_its_name_in_any_letter_case() {
     let dir = crate::save::tests::TempDir::new("world-case");
     let pool = crate::runtime::cpu_pool(1).unwrap();
-    let files = || crate::save::world_files(&dir.0).unwrap();
+    let files = || crate::save::world_names(&dir.0).unwrap();
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
         let id = context(&mut state)
@@ -1586,7 +1593,7 @@ fn a_world_made_again_late_in_the_tick_of_its_deletion_is_saved() {
         finish(link, handle);
     }
     assert_eq!(
-        crate::save::world_files(&dir.0).unwrap(),
+        crate::save::world_names(&dir.0).unwrap(),
         ["lobby", "world"]
     );
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());

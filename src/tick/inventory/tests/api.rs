@@ -203,7 +203,7 @@ fn container_blocks_read_both_chest_halves_and_tell_every_viewer() {
         cx.block_inventory(here, BlockPos::new(0, -61, 0)).is_none(),
         "no container"
     );
-    let window = w.inv(viewer).window.as_ref().unwrap().id;
+    let window = w.inv(viewer).window.as_ref().unwrap().id.unwrap();
     let sent = slots(&w.sent(viewer));
     assert_eq!(sent.len(), 2);
     assert!(sent.iter().all(|s| s.0 == u32::from(window)));

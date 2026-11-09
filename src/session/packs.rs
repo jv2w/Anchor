@@ -111,7 +111,12 @@ impl Transfer {
         if sent.get(bit) {
             return Err(Error::Order("chunk requested twice"));
         }
-        sent.set(bit);
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: `bit` is below `sent.len()`, checked above"
+        )]
+        sent.set(bit)
+            .expect("a checked chunk index is inside the bitset");
         self.queue.push_back((index, chunk));
         Ok(())
     }

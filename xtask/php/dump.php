@@ -22,8 +22,8 @@
  *   loads an unknown block). A state read as itself is left out, so the file lists what differs:
  *   the dump source ignores some vanilla properties (a pumpkin's facing, a hanging sign's unused
  *   facing) and writes one value for them.
- * - items.json: every item type with its Bedrock serialization, names and data (class, stack
- *   size, durability, tool, armour, food, cooldown and so on).
+ * - items.json: every item type with its Bedrock serialization and data (class, stack size,
+ *   durability, tool, armour, food, cooldown and so on).
  * - creative.json: the creative inventory in order, with its groups.
  * - tables.json: status effects, potion types, enchantments, and banner patterns.
  *
@@ -64,7 +64,6 @@ use pocketmine\data\bedrock\EnchantmentIdMap;
 use pocketmine\data\bedrock\item\SavedItemData;
 use pocketmine\data\bedrock\PotionTypeIdMap;
 use pocketmine\entity\Consumable;
-use pocketmine\entity\effect\Effect;
 use pocketmine\entity\effect\EffectInstance;
 use pocketmine\entity\effect\InstantEffect;
 use pocketmine\entity\effect\VanillaEffects;
@@ -550,7 +549,7 @@ function placedBlock(Block $block) : ?array{
 }
 
 $items = [];
-$addItem = function(Item $item, ?string $name, bool $vanilla = false) use (&$items, $itemKinds, $effectNames) : void{
+$addItem = function(Item $item, bool $vanilla = false) use (&$items, $itemKinds, $effectNames) : void{
 	try{
 		$type = itemType($item);
 	}catch(\Throwable $e){
@@ -559,41 +558,33 @@ $addItem = function(Item $item, ?string $name, bool $vanilla = false) use (&$ite
 	}
 	$k = jsonKey($type);
 	$data = itemData($item, $itemKinds, $effectNames);
-	$items[$k] ??= ["bedrock" => $type, "data" => $data, "names" => [], "vanilla" => false];
+	$items[$k] ??= ["bedrock" => $type, "data" => $data, "vanilla" => false];
 	// Whether VanillaItems gives this form (its default for the kind).
 	$items[$k]["vanilla"] = $items[$k]["vanilla"] || $vanilla;
 	if(oneLine($items[$k]["data"]) !== oneLine($data)){
 		fail("items of form $k disagree on their data");
 	}
-	if($name !== null && !in_array($name, $items[$k]["names"], true)){
-		$items[$k]["names"][] = $name;
-	}
 };
-foreach(VanillaItems::getAll() as $name => $item){
+foreach(VanillaItems::getAll() as $item){
 	// AIR is the empty stack, not an item type.
 	if(!$item->isNull()){
-		$addItem($item, strtolower($name), true);
+		$addItem($item, true);
 	}
 }
 foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $block){
 	$item = $block->asItem();
 	if(!$item->isNull()){
-		$addItem($item, null);
+		$addItem($item);
 	}
 }
 $parser = StringToItemParser::getInstance();
 foreach($parser->getKnownAliases() as $alias){
 	$item = $parser->parse($alias) ?? fail("alias $alias does not parse");
 	if(!$item->isNull()){
-		$addItem($item, $alias);
+		$addItem($item);
 	}
 }
-$itemList = array_values($items);
-foreach($itemList as &$entry){
-	sort($entry["names"], SORT_STRING);
-}
-unset($entry);
-write($out, "items.json", lines(sortByJson($itemList)));
+write($out, "items.json", lines(sortByJson(array_values($items))));
 
 // Creative inventory, in the dump source's order.
 $creative = [];
@@ -632,7 +623,6 @@ foreach(VanillaEffects::getAll() as $name => $effect){
 		"name" => strtolower($name),
 		"id" => EffectIdMap::getInstance()->toId($effect),
 		"text" => text($effect->getName()),
-		"classes" => classChain($effect, Effect::class),
 		"colour" => colour($effect->getColor()),
 		"bad" => $effect->isBad(),
 		"instant" => $effect instanceof InstantEffect,
@@ -674,5 +664,5 @@ write($out, "tables.json", "{\n" . implode(",\n", $tableJson) . "\n}");
 
 fwrite(STDOUT, sprintf(
 	"dump: %d block states, %d items, %d creative entries, %d effects, %d potion types, %d enchantments\n",
-	count($blocks), count($itemList), count($creative), count($effects), count($potions), count($enchantments)
+	count($blocks), count($items), count($creative), count($effects), count($potions), count($enchantments)
 ));

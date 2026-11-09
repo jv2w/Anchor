@@ -2275,10 +2275,7 @@ fn food_off_spends_and_gains_no_food_raises_no_event_and_sends_no_food_attribute
     );
     game.idle(200);
     let s = game.survival_mut(1);
-    assert_eq!(
-        (s.food, s.saturation, s.exhaustion, s.food_timer),
-        (20.0, 5.0, 0.0, 0)
-    );
+    assert_eq!((s.food, s.saturation, s.exhaustion), (20.0, 5.0, 0.0));
     assert_eq!(drain(&mut seen), ["damage"]);
     let sent = attribute_names(&game.take(1));
     assert!(
@@ -2306,9 +2303,9 @@ fn xp_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
     assert_eq!(p.set_xp_progress(0.5), off);
     assert_eq!(p.set_current_total_xp(9), off);
     assert_eq!(p.set_lifetime_total_xp(9), off);
-    p.add_xp(100);
-    p.subtract_xp(5);
-    p.subtract_xp_levels(3);
+    assert_eq!(p.add_xp(100), off);
+    assert_eq!(p.subtract_xp(5), off);
+    assert_eq!(p.subtract_xp_levels(3), off);
     // A death drops no xp and keeps the level.
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(2);

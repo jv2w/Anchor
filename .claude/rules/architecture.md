@@ -27,7 +27,7 @@ paths:
 
 ## Tick
 - Wait between ticks with `std::thread::sleep`, through `clock::sleep_until`.
-- Never change the order of a tick: input → rules → sync → output, then the boundary after the output is delivered.
+- Never change the order of a tick: input → rules → sync → output, then the boundary after the output is delivered, then the boundary's output (`flush`).
 - Put every input the tick applies into the input log **before** applying it.
 - Compute heavy rules (entity physics) read-only on the CPU pool, then apply the results serially.
 - Send hooks and the StartGame hook run in parallel in the output phase: keep them `Fn + Sync`, so they cannot reach game state.

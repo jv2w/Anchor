@@ -211,9 +211,9 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
     assert!(!flags_of(&m).contains(EntityDataFlag::ShowBottom));
     let mut cx = h.context();
     let mut e = cx.entity_mut(id).unwrap();
-    e.set_show_base(true).unwrap();
+    e.set_base_visible(true).unwrap();
     e.set_beam_target(Some(BlockPos::new(0, 80, 0))).unwrap();
-    assert!(e.shows_base());
+    assert!(e.is_base_visible());
     assert_eq!(e.beam_target(), Some(BlockPos::new(0, 80, 0)));
     h.step(Vec::new());
     let data: Vec<_> = h
@@ -306,12 +306,14 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     let bad = Compound::from([(TAG_TYPE.to_owned(), Value::Byte(9))]);
     let at_burst = at(6.5, -60.0, 0.5);
     assert!(
-        cx.spawn_firework_rocket(WORLD, at_burst, 1, vec![bad.clone()], Vec3::ZERO)
+        cx.spawn_firework_rocket(WORLD, at_burst, vec![bad.clone()])
             .is_err()
     );
     let id = cx
-        .spawn_firework_rocket(WORLD, at_burst, 100, Vec::new(), Vec3::ZERO)
+        .spawn_firework_rocket(WORLD, at_burst, Vec::new())
         .unwrap();
+    // Without drift, so the burst point is where it climbs to.
+    cx.entity_mut(id).unwrap().set_motion(Vec3::ZERO).unwrap();
     h.take(1);
     // Shown first; then its flight ends at once.
     h.step(Vec::new());
@@ -351,9 +353,13 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     );
     // Without explosions a rocket bursts quietly and harmlessly, its burst event shown as the
     // official server shows it (P6 `entities`).
-    let quiet = h
-        .context()
-        .spawn_firework_rocket(WORLD, at_burst, 2, Vec::new(), Vec3::ZERO)
+    let mut cx = h.context();
+    let quiet = cx
+        .spawn_firework_rocket(WORLD, at_burst, Vec::new())
+        .unwrap();
+    cx.entity_mut(quiet)
+        .unwrap()
+        .set_max_flight_time_ticks(2)
         .unwrap();
     let before = entity(&h, npc).health;
     let quiet_runtime_id = entity(&h, quiet).runtime_id;
@@ -397,18 +403,18 @@ fn the_multiplier_an_api_rocket_shows_inverts_the_flight_time_of_an_item() {
     }
 }
 
-/// An API launch flies as a rocket item without `Fireworks` data: 20 ticks and up to 12 more, a
-/// slow start up with its own drift, looking up, without owner or explosions, never saved.
+/// An API rocket flies as a rocket item of flight multiplier 1: 20 ticks and up to 12 more, a
+/// slow start up with its own drift, looking up, without owner, never saved.
 #[test]
-fn an_api_launch_flies_as_a_rocket_item_without_data() {
+fn an_api_rocket_flies_as_a_rocket_item_of_multiplier_one() {
     let mut h = Harness::with_player();
     let mut cx = h.context();
     assert!(
-        cx.launch_firework_rocket(WORLD, at(f64::NAN, -60.0, 0.5))
+        cx.spawn_firework_rocket(WORLD, at(f64::NAN, -60.0, 0.5), Vec::new())
             .is_err()
     );
     let ids = [0; 2].map(|_| {
-        cx.launch_firework_rocket(WORLD, at(6.5, -60.0, 0.5))
+        cx.spawn_firework_rocket(WORLD, at(6.5, -60.0, 0.5), Vec::new())
             .unwrap()
     });
     for id in ids {
@@ -864,7 +870,7 @@ fn spawning_and_removing_each_kind_leaves_every_table_at_its_start() {
             )
             .unwrap(),
             cx.spawn_end_crystal(WORLD, at(-3.5, -60.0, z)).unwrap(),
-            cx.spawn_firework_rocket(WORLD, at(-6.5, -60.0, z), 1000, Vec::new(), Vec3::ZERO)
+            cx.spawn_firework_rocket(WORLD, at(-6.5, -60.0, z), Vec::new())
                 .unwrap(),
             cx.spawn_trident(
                 WORLD,

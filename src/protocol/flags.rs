@@ -141,10 +141,20 @@ impl<F: Flag> FlagSet<F> {
     }
 
     /// The set as a [`Bitset`] of [`Flag::COUNT`] bits (gophertunnel sizes flag bitsets so).
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "invariant: every flag's bit is below the flag count, the bitset's size"
+    )]
     pub fn to_bitset(self) -> Bitset {
         let mut bitset = Bitset::new(F::COUNT as usize);
         for flag in self.iter() {
-            bitset.set(flag.bit() as usize);
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: every flag's bit is below the flag count, the bitset's size"
+            )]
+            bitset
+                .set(flag.bit() as usize)
+                .expect("a flag's bit is inside a bitset of the flag count");
         }
         bitset
     }
@@ -336,7 +346,7 @@ mod tests {
         );
         assert!(FlagSet::<MoveFlag>::from_words(&[0, 1]).is_err());
         let mut bitset = Bitset::new(200);
-        bitset.set(EntityDataFlag::COUNT as usize);
+        bitset.set(EntityDataFlag::COUNT as usize).unwrap();
         assert!(FlagSet::<EntityDataFlag>::from_bitset(&bitset).is_err());
     }
 

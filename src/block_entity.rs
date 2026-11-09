@@ -11,11 +11,13 @@
 //! is saved with the chunk at the next commit; a value it does not take or a kind it does not
 //! apply to is an [`Error`], changing nothing. Writes raise no events.
 //!
-//! A block placed by [`World::set_block`](crate::world::World::set_block) or by a generator has no
-//! block entity until the tick's block change phase makes an empty one for it; a block entity
-//! whose block was changed to one that does not take it (by `set_block` too) stays readable until
-//! that phase, then goes: the items of a container, and a shulker box's, drop as items, a sign's
-//! text and a banner's patterns are gone.
+//! A block placed by [`World::set_block`](crate::world::World::set_block) has no block entity to
+//! read until the tick's block change phase makes an empty one for it; a block a generator placed
+//! has none until its first use: `block_entity_mut`, a window or a sign editor opening on it make
+//! an empty one, and breaking it drops what an empty one gives. A block entity whose block was
+//! changed to one that does not take it (by `set_block` too) stays readable until that phase,
+//! then goes: the items of a container, and a shulker box's, drop as items, a sign's text and a
+//! banner's patterns are gone.
 
 use std::fmt;
 
@@ -123,32 +125,32 @@ pub struct SignText {
 
 impl SignText {
     /// Text from lines joined by newlines (lines past the fourth are left out, missing ones are
-    /// empty).
+    /// empty), not glowing.
     ///
     /// # Errors
     ///
     /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
     #[doc(alias = "SignText::fromBlob")]
-    pub fn from_blob(blob: &str, colour: Rgba, glowing: bool) -> Result<Self> {
+    pub fn from_blob(blob: &str, colour: Rgba) -> Result<Self> {
         let mut lines: [String; SIGN_LINES] = Default::default();
         for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
             line.clone_into(slot);
         }
-        Self::new(lines, colour, glowing)
+        Self::new(lines, colour)
     }
 
-    /// Text of four lines in `colour`.
+    /// Text of four lines in `colour`, not glowing.
     ///
     /// # Errors
     ///
     /// [`Error::Invalid`] for a line that holds a newline.
     /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
-    pub fn new(lines: [String; SIGN_LINES], colour: Rgba, glowing: bool) -> Result<Self> {
+    pub fn new(lines: [String; SIGN_LINES], colour: Rgba) -> Result<Self> {
         check_lines(lines.iter().map(String::as_str))?;
         Ok(Self {
             lines,
             colour: to_argb(colour),
-            glowing,
+            glowing: false,
         })
     }
 
@@ -174,6 +176,15 @@ impl SignText {
     #[doc(alias = "SignText::getLines")]
     pub fn lines(&self) -> &[String; SIGN_LINES] {
         &self.lines
+    }
+
+    /// The same text glowing, as a glow ink sac makes it.
+    #[must_use]
+    pub fn glowing(self) -> Self {
+        Self {
+            glowing: true,
+            ..self
+        }
     }
 }
 
@@ -269,17 +280,27 @@ impl DyeColour {
 
     /// The colour's opaque RGB value, as the dump lists it (white is `#f0f0f0`, black `#1d1d21`).
     #[doc(alias = "DyeColor::getRgbValue")]
-    #[expect(
-        clippy::missing_panics_doc,
-        reason = "invariant: the dye table holds all 16 colours"
-    )]
     pub fn rgb(self) -> Rgba {
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the dye table holds all 16 colours"
-        )]
-        let argb = crate::item::dye_argb(self as u8).expect("every dye colour has a value");
-        from_argb(argb.cast_signed())
+        let rgb: u32 = match self {
+            Self::White => 0xf0_f0f0,
+            Self::Orange => 0xf9_801d,
+            Self::Magenta => 0xc7_4ebd,
+            Self::LightBlue => 0x3a_b3da,
+            Self::Yellow => 0xfe_d83d,
+            Self::Lime => 0x80_c71f,
+            Self::Pink => 0xf3_8baa,
+            Self::Gray => 0x47_4f52,
+            Self::LightGray => 0x9d_9d97,
+            Self::Cyan => 0x16_9c9c,
+            Self::Purple => 0x89_32b8,
+            Self::Blue => 0x3c_44aa,
+            Self::Brown => 0x83_5432,
+            Self::Green => 0x5e_7c16,
+            Self::Red => 0xb0_2e26,
+            Self::Black => 0x1d_1d21,
+        };
+        let [_, r, g, b] = rgb.to_be_bytes();
+        Rgba { r, g, b, a: 0xff }
     }
 }
 
@@ -373,14 +394,14 @@ c
 d
 e",
             colour,
-            true,
         )
         .unwrap();
         assert_eq!(text.lines(), &["a", "b", "c", "d"].map(String::from));
         assert_eq!((text.line(1), text.line(4)), (Some("b"), None));
-        assert_eq!((text.colour(), text.is_glowing()), (colour, true));
+        assert_eq!((text.colour(), text.is_glowing()), (colour, false));
+        assert!(text.clone().glowing().is_glowing());
         assert_eq!(text.colour, 0xff11_2233_u32.cast_signed(), "saved as ARGB");
-        let short = SignText::from_blob("x", Rgba::default(), false).unwrap();
+        let short = SignText::from_blob("x", Rgba::default()).unwrap();
         assert_eq!(short.lines(), &["x", "", "", ""].map(String::from));
         assert_eq!(
             SignText::new(
@@ -390,13 +411,12 @@ e",
                     String::new(),
                     String::new()
                 ],
-                Rgba::default(),
-                false
+                Rgba::default()
             ),
             Err(Error::Invalid)
         );
         assert_eq!(
-            SignText::from_blob(&"x".repeat(MAX_SIGN_TEXT_BYTES + 1), Rgba::default(), false),
+            SignText::from_blob(&"x".repeat(MAX_SIGN_TEXT_BYTES + 1), Rgba::default()),
             Err(Error::TooLong)
         );
         let black = Rgba {

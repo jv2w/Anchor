@@ -57,7 +57,7 @@ pub(crate) const CHUNK_TAG_BLOCK_ENTITIES: u8 = 0x31;
 /// The chunk tag of legacy block extra data.
 const CHUNK_TAG_LEGACY_EXTRA: u8 = 0x34;
 /// The chunk tag of the version in old worlds.
-const CHUNK_TAG_OLD_VERSION: u8 = 0x76;
+pub(crate) const CHUNK_TAG_OLD_VERSION: u8 = 0x76;
 /// The ids of legacy terrain.
 const LEGACY_IDS_BYTES: usize = 32_768;
 /// The light of legacy terrain.

@@ -150,7 +150,7 @@ const _: () = assert!(
         <= MAX_PLAYER_EXTRA_BYTES
 );
 /// The off hand window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
-pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
+pub(super) const OFFHAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
 /// The `InventoryContent` packets of the player's own windows ([`own_windows`]).
 const OWN_WINDOW_PACKETS: usize = 4;
 /// A shulker box.
@@ -303,7 +303,7 @@ impl Inventory {
         h.u64(u64::from(*last_window));
         match window {
             Some(Window { id, kind, ui, ids }) => {
-                h.u64(1 + u64::from(*id));
+                h.u64(1 + id.map_or(0, u64::from));
                 h.bytes(format!("{kind:?}").as_bytes());
                 h.usize(ui.len());
                 for s in ui {
@@ -411,7 +411,7 @@ impl Inventory {
             c if c == ContainerId::Offhand as u8 => Some(SlotRef::Offhand),
             c if c == ContainerId::Cursor as u8 => (slot == 0).then_some(SlotRef::Cursor),
             _ => {
-                let window = self.window.as_ref().filter(|w| w.id != 0)?;
+                let window = self.window.as_ref().filter(|w| w.id.is_some())?;
                 if let WindowKind::Menu { .. } = window.kind {
                     let editable = self.menu.as_ref()?.is_editable(usize::from(slot));
                     return (container == ContainerId::LevelEntity as u8 && editable)
@@ -756,8 +756,9 @@ enum SlotRef {
 /// An open window.
 #[derive(Debug, Clone, PartialEq)]
 struct Window {
-    /// The window ID; 0 while it waits for the close of the previous window to be acknowledged.
-    id: u8,
+    /// The window ID; `None` while it waits for the close of the previous window to be
+    /// acknowledged.
+    id: Option<u8>,
     kind: WindowKind,
     /// The window's own slots (the trade payments), given back on close.
     ui: Vec<Slot>,
@@ -766,8 +767,9 @@ struct Window {
 }
 
 impl Window {
-    /// A window of `kind` with ID `id` (0 while it waits to open) and nothing in its own slots.
-    fn new(kind: WindowKind, id: u8) -> Self {
+    /// A window of `kind` with ID `id` (`None` while it waits to open) and nothing in its own
+    /// slots.
+    fn new(kind: WindowKind, id: Option<u8>) -> Self {
         Self {
             id,
             kind,
@@ -903,7 +905,7 @@ checkpoint::variants!(Container {
 
 /// What tells the window a player has open apart from a window opened in its place: its ID, its
 /// kind and its menu (a new menu has a new [`crate::menu::Id`], since menu IDs never repeat).
-type WindowKey = (u8, WindowKind, Option<crate::menu::Id>);
+type WindowKey = (Option<u8>, WindowKind, Option<crate::menu::Id>);
 
 /// A run of request slots of a window and where they live.
 #[derive(Debug, Clone, Copy)]
@@ -1240,7 +1242,7 @@ pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: 
     } else {
         packet.window_id
     };
-    let current = inv.window.as_ref().is_some_and(|w| w.id == id && w.id != 0);
+    let current = inv.window.as_ref().is_some_and(|w| w.id == Some(id));
     if current && inv.pending_close != Some(id) {
         close(state, session, Notice::Skip);
     }
@@ -1367,7 +1369,7 @@ fn pick(
         return None;
     }
     let world = player.world;
-    let finite = survival::has_finite_resources(survival::game_mode(state, player));
+    let finite = survival::has_finite_resources(player.game_mode());
     let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
     let own = interact::drops::own_item(state, world, pos, block)?;
     let picked = match (block.item(), data) {
@@ -1777,7 +1779,7 @@ pub(super) fn open_trade(
         return None;
     }
     let id = inv.next_window_id();
-    inv.window = Some(Window::new(WindowKind::Trade { villager }, id));
+    inv.window = Some(Window::new(WindowKind::Trade { villager }, Some(id)));
     Some(id)
 }
 
@@ -1877,7 +1879,7 @@ fn open(
     let Some(player) = state.players.get_mut(&session) else {
         return false;
     };
-    player.inventory.window = Some(Window::new(kind, 0));
+    player.inventory.window = Some(Window::new(kind, None));
     if player.inventory.pending_close.is_none() {
         announce(state, session);
     }
@@ -1898,7 +1900,12 @@ fn announce(state: &mut State, session: SessionId) {
     }
     let eye = player.position;
     let inv = &mut player.inventory;
-    let Some(kind) = inv.window.as_ref().filter(|w| w.id == 0).map(|w| w.kind) else {
+    let Some(kind) = inv
+        .window
+        .as_ref()
+        .filter(|w| w.id.is_none())
+        .map(|w| w.kind)
+    else {
         return;
     };
     let id = inv.next_window_id();
@@ -1928,7 +1935,7 @@ fn announce(state: &mut State, session: SessionId) {
         container_entity_unique_id: -1,
     }));
     if let Some(window) = inv.window.as_mut() {
-        window.id = id;
+        window.id = Some(id);
         window.ids = ids;
     }
     if let Some(window) = &inv.window
@@ -2011,13 +2018,15 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
                 .filter(|s| !s.stack.is_empty())
                 .map(|s| s.stack.clone()),
         );
-        if w.id != 0 && notice == Notice::Send {
+        if let Some(id) = w.id
+            && notice == Notice::Send
+        {
             player.send_packet(Packet::ContainerClose(ContainerClose {
-                window_id: w.id,
+                window_id: id,
                 container_type: w.kind.container_type(),
                 server_side: true,
             }));
-            player.inventory.pending_close = Some(w.id);
+            player.inventory.pending_close = Some(id);
         }
     }
     if !cursor.is_empty() || !back.is_empty() {
@@ -2265,10 +2274,10 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
     let mut packets = Vec::with_capacity(OWN_WINDOW_PACKETS + 1);
     own_windows(&player.inventory, &mut packets);
     if let Some(window) = &player.inventory.window
-        && window.id != 0
+        && let Some(id) = window.id
         && let Some(content) = window_content(&player.inventory, window, blocks)
     {
-        packets.push(content_packet(u32::from(window.id), content));
+        packets.push(content_packet(u32::from(id), content));
     }
     for p in packets {
         player.send_packet(p);
@@ -2416,11 +2425,10 @@ fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
         SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
         SlotRef::Ender(i) => {
             if let Some(window) = &player.inventory.window
-                && window.id != 0
+                && let Some(id) = window.id
                 && matches!(window.kind, WindowKind::Ender { .. })
             {
-                let id = u32::from(window.id);
-                player.send_packet(slot_packet(id, u32::from(i), item));
+                player.send_packet(slot_packet(u32::from(id), u32::from(i), item));
             }
         }
         r => {

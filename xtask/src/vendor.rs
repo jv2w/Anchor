@@ -108,7 +108,7 @@ fn test(root: &Path) -> Result<bool, String> {
             "--tests",
             "--no-default-features",
             "--features",
-            "aws-lc-rs,_internal_test_exports",
+            "aws-lc-rs,pii,_internal_test_exports",
             "--config",
             STR0M_DIMPL,
             "--config",

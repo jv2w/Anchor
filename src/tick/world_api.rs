@@ -19,6 +19,7 @@ pub(super) use lifecycle::{
 
 use super::view::chunk_of;
 use super::{Context, Phase, Player, State, entity, survival, weather};
+use crate::action;
 use crate::math::{Aabb, Vec3};
 use crate::player;
 use crate::protocol::packet::Packet;
@@ -34,13 +35,6 @@ pub(super) const EFFECT_RESERVE: usize = 1024;
 /// cells on each axis, and the cells under and over it are looked at too (33 × 35 × 33 cells, x,
 /// y, z).
 const MAX_COLLISION_SPAN: f64 = 32.0;
-
-/// Whether an explosion sets the blocks it breaks on fire.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fire {
-    Set,
-    Spare,
-}
 
 impl Context<'_> {
     /// The players in `world` who were sent the chunk `chunk` (they see what happens in it), in
@@ -143,43 +137,36 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Explodes with `size` at `center` in `world`: blocks break and drop with a 1 / size chance,
-    /// and entities and players near it are hurt and pushed by their exposure. A size above 8
-    /// explodes as 8. Its rays stop at chunks that are not loaded and at blocks neither Anchor
-    /// nor clients know; blocks only clients know weaken them and stay. Like every direct call it
-    /// raises no events (the entity hits and pushes included);
-    /// [`action::Explode`](crate::action::Explode) explodes with them. Nothing is done when it
-    /// fails.
+    /// Explodes `explosion`: blocks break and drop with a 1 / size chance, and entities and
+    /// players near it are hurt and pushed by their exposure. A size above 8 explodes as 8. With
+    /// [`Explode::fire`](action::Explode::fire), a third of the broken blocks are set on fire
+    /// where the block under them can hold fire; that fire is a block like any other, which never
+    /// spreads or burns out. Its rays stop at chunks that are not loaded and at blocks neither
+    /// Anchor nor clients know; blocks only clients know weaken them and stay. Like every direct
+    /// call it raises no events (the entity hits and pushes included); performing the same
+    /// [`action::Explode`] explodes with them. Nothing is done when it fails.
     ///
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `center` that is not finite or outside the world
-    /// border, or a size that is not finite or not above 0.
+    /// [`world::Error::OutOfRange`] for a center that is not finite or outside the world border,
+    /// or a size that is not finite or not above 0.
     #[doc(alias = "Explosion::__construct")]
     #[doc(alias = "Explosion::explodeA")]
     #[doc(alias = "Explosion::explodeB")]
-    pub fn explode(&mut self, world: world::Id, center: Vec3, size: f64) -> world::Result<()> {
-        self.explosion(world, center, size, Fire::Spare)
-    }
-
-    /// Explodes as [`Self::explode`] does, and sets a third of the broken blocks on fire where the
-    /// block under them can hold fire. The fire is a block like any other: it never spreads or
-    /// burns out. Nothing is done when it fails.
-    ///
-    /// # Errors
-    ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `center` that is not finite or outside the world
-    /// border, or a size that is not finite or not above 0.
-    #[doc(alias = "Explosion::setFireChance")]
-    pub fn explode_with_fire(
-        &mut self,
-        world: world::Id,
-        center: Vec3,
-        size: f64,
-    ) -> world::Result<()> {
-        self.explosion(world, center, size, Fire::Set)
+    pub fn explode(&mut self, explosion: action::Explode) -> world::Result<()> {
+        let action::Explode {
+            world,
+            center,
+            size,
+            fire,
+        } = explosion;
+        let w = loaded_index(self.state, world)?;
+        if !entity::is_valid_explosion(center, size) {
+            return Err(world::Error::OutOfRange);
+        }
+        entity::explode(self.state, w, center, size, fire, entity::Raise::Quiet);
+        Ok(())
     }
 
     /// Sets the time of `world` to `time_ticks` (its clock; the day cycle follows it) and sends
@@ -192,7 +179,7 @@ impl Context<'_> {
     pub fn set_time(&mut self, world: world::Id, time_ticks: i64) -> world::Result<()> {
         let w = loaded_index(self.state, world)?;
         world_at_mut(self.state, w).set_time(time_ticks);
-        let packet = survival::clock_state(self.state, w);
+        let packet = survival::clock_state(world_at(self.state, w));
         send_to_world(self.state, w, &packet);
         Ok(())
     }
@@ -246,29 +233,6 @@ impl Context<'_> {
     pub fn world_mut(&mut self, id: world::Id) -> Option<&mut World> {
         let i = index(self.state, id)?;
         Some(world_at_mut(self.state, i))
-    }
-
-    /// Explodes as [`Self::explode`] does, setting fire as `fire` says.
-    fn explosion(
-        &mut self,
-        world: world::Id,
-        center: Vec3,
-        size: f64,
-        fire: Fire,
-    ) -> world::Result<()> {
-        let w = loaded_index(self.state, world)?;
-        if !entity::is_valid_explosion(center, size) {
-            return Err(world::Error::OutOfRange);
-        }
-        entity::explode(
-            self.state,
-            w,
-            center,
-            size,
-            fire == Fire::Set,
-            entity::Raise::Quiet,
-        );
-        Ok(())
     }
 }
 

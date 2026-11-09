@@ -290,14 +290,20 @@ impl BlockCursor {
     }
 
     /// The current internal key and value, if the cursor is on an entry.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the entry's decode took its value's bytes from the block's entries"
+    )]
     fn entry(&self) -> Option<(&[u8], &[u8])> {
         if !self.valid {
             return None;
         }
-        Some((
-            &self.key,
-            self.block.data.get(self.value.clone()).unwrap_or_default(),
-        ))
+        let value = self
+            .block
+            .data
+            .get(self.value.clone())
+            .expect("an entry's value lies in its block");
+        Some((&self.key, value))
     }
 
     /// Moves to the first entry at or after `target` (an internal key).
@@ -396,16 +402,25 @@ impl Block {
         self.data.capacity()
     }
 
-    /// Decodes the entry at `offset` whose key shares a prefix with `previous`: writes its key
-    /// into `key` and returns the value range and the next entry's offset.
+    /// Decodes the entry at `offset`, before the restarts, whose key shares a prefix with
+    /// `previous`: writes its key into `key` and returns the value range and the next entry's
+    /// offset.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the parse put the restarts within the data, and every offset given \
+                  is a checked restart or an entry's end before the restarts"
+    )]
     fn entry(
         &self,
         offset: usize,
         previous: &[u8],
         key: &mut Vec<u8>,
     ) -> Result<(Range<usize>, usize)> {
-        let entries = self.data.get(..self.restarts).unwrap_or_default();
-        let mut bytes = Bytes(entries.get(offset..).unwrap_or_default());
+        let mut bytes = Bytes(
+            self.data
+                .get(offset..self.restarts)
+                .expect("an entry starts before the restarts"),
+        );
         let shared =
             usize::try_from(bytes.varint32()?).map_err(|_| Error::Malformed("key length"))?;
         let unshared =

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use crate::permission::{self, BanEntry, MAX_ENTRIES, MAX_NAME};
+use crate::permission::{self, BanEntry, MAX_ENTRIES, MAX_NAME_BYTES};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::{AccessKey, AccessKind};
 use crate::tick::checkpoint::{self, Codec, Reader, Writer};
@@ -46,7 +46,7 @@ checkpoint::fields!(Lists {
 pub(super) struct Access {
     /// The operator list, the bans and the whitelist.
     lists: Arc<Lists>,
-    /// Whether only whitelisted players (and operators) may join (`white-list`; not saved).
+    /// Whether only whitelisted players (and operators) may join (`whitelist`; not saved).
     whitelist_enabled: bool,
     /// The last write of every entry changed since the last snapshot.
     changes: BTreeMap<AccessKey, AccessWrite>,
@@ -452,12 +452,12 @@ impl Codec for Access {
 
 /// Calls `f` with `name` in ASCII lowercase, the form the lists keep, without allocating: a name
 /// already in lowercase as it is, another lowercased in a stack buffer. `None` for a name longer
-/// than [`MAX_NAME`] bytes, which no list holds.
+/// than [`MAX_NAME_BYTES`] bytes, which no list holds.
 fn folded<R>(name: &str, f: impl FnOnce(&str) -> R) -> Option<R> {
     if !name.bytes().any(|b| b.is_ascii_uppercase()) {
         return Some(f(name));
     }
-    let mut buffer = [0_u8; MAX_NAME];
+    let mut buffer = [0_u8; MAX_NAME_BYTES];
     let lower = buffer.get_mut(..name.len())?;
     lower.copy_from_slice(name.as_bytes());
     lower.make_ascii_lowercase();
@@ -476,7 +476,7 @@ mod tests {
         assert!(access.is_op("steve") && access.is_op("STEVE") && access.is_op("sTeVe"));
         assert!(!access.is_op("alex"));
         // Longer than any listed name: not on the list, and no buffer overrun.
-        assert!(!access.is_op(&"S".repeat(MAX_NAME + 1)));
+        assert!(!access.is_op(&"S".repeat(MAX_NAME_BYTES + 1)));
         assert!(access.whitelist_add("\u{c9}mile").unwrap());
         assert!(access.is_listed("\u{c9}MILE"), "only ASCII letters fold");
         assert_eq!(folded("AbC", str::to_owned), Some("abc".to_owned()));

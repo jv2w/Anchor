@@ -86,7 +86,7 @@ paths:
 - Keep every cryptographic primitive of Anchor's code (ES384, RS256, ECDH P-384, SHA-256, HMAC-SHA256, AES-256-CTR, randomness), base64, and the JWS compact form in the `crypto` module.
 
 ## Compression
-- Check the ranges of `compression-threshold`, `compression-level`, and `max-batch-bytes` in one place, `batch::Settings::new`; a bound that relates `max-batch-bytes` to another value is the configuration's (`config.md`).
+- Check the ranges of `compression-threshold-bytes`, `compression-level`, and `max-batch-bytes` in one place, `batch::Settings::new`; a bound that relates `max-batch-bytes` to another value is the configuration's (`config.md`).
 - Never accept a compression threshold of 0.
 - Server sends use the threshold announced in NetworkSettings.
 - Accept only standard Snappy elements, never the S2 extension.

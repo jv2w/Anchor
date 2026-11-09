@@ -38,6 +38,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::warn;
 
@@ -106,9 +107,9 @@ const CRC_BYTES: usize = 4;
 /// count and the ticks. A tick is its number (u64), the input count and the inputs, the count of
 /// forgotten sessions and their ids (u64), and the answer count and the answers. An input is its
 /// session (u64), its sequence number (u64), a kind tag and the fields of its kind; an answer is a
-/// tag and its fields. The body of a checkpoint is what every rule module's checkpoint codec
-/// decides.
-const FORMAT: u32 = 5;
+/// tag and its fields, each in its type's field declaration order. The body of a checkpoint is
+/// what every rule module's checkpoint codec decides.
+const FORMAT: u32 = 6;
 /// The bytes a written log's buffer reserves beyond the input bytes: the header and the
 /// checksum, rounded up.
 const HEADER_CAPACITY_BYTES: usize = 128;
@@ -498,7 +499,7 @@ impl InputLog {
             Ok(logged) => logged,
             Err(e) => {
                 warn!(
-                    error = &e as &(dyn std::error::Error + 'static),
+                    error = e as &(dyn std::error::Error + 'static),
                     "an answer cannot be logged; ticks until the next save are not recorded"
                 );
                 let segment = self.last_segment_mut();
@@ -954,8 +955,9 @@ pub(crate) enum Answer {
 }
 
 impl Answer {
-    /// The logged form of an answer and the bytes it is charged.
-    fn of(response: &Response) -> protocol::Result<(Self, usize)> {
+    /// The logged form of an answer and the bytes it is charged; fails for a player load whose
+    /// extra did not encode.
+    fn of(response: &Response) -> Result<(Self, usize), &protocol::Error> {
         Ok(match response {
             Response::Chunk { world, pos, loaded } => {
                 let (origin, checksum) = match loaded {
@@ -971,8 +973,9 @@ impl Answer {
                 };
                 (answer, 0)
             }
-            Response::Player { key, data } => {
-                let data = LoggedPlayer::of(data)?;
+            Response::Player { key, logged, .. } => {
+                // The save thread made it: the extra's bytes are shared, not copied.
+                let data = logged.as_ref()?.clone();
                 let size = data.size().saturating_add(key.as_str().len());
                 let answer = Self::Player {
                     key: key.as_str().to_owned(),
@@ -1005,13 +1008,14 @@ pub(crate) enum Origin {
 }
 
 /// A player load as the log keeps it: the extra compound as its little-endian NBT bytes, which
-/// the log counts against its bound and copies no tree for.
+/// the log counts against its bound and copies no tree for. The save thread makes it with the
+/// load ([`Response::Player`]), so the tick encodes nothing.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LoggedPlayer {
     Found {
         world: String,
         position: [f64; 3],
-        extra: Vec<u8>,
+        extra: Arc<[u8]>,
     },
     Absent,
     Damaged,
@@ -1036,7 +1040,7 @@ impl LoggedPlayer {
     }
 
     /// The logged form of a load; fails only if the extra does not encode.
-    fn of(load: &PlayerLoad) -> protocol::Result<Self> {
+    pub(crate) fn of(load: &PlayerLoad) -> protocol::Result<Self> {
         Ok(match load {
             PlayerLoad::Found(data) => {
                 let mut w = Writer::new(Vec::new(), 0);
@@ -1044,7 +1048,7 @@ impl LoggedPlayer {
                 Self::Found {
                     world: data.world.clone(),
                     position: data.position,
-                    extra: w.into_inner(),
+                    extra: w.into_inner().into(),
                 }
             }
             PlayerLoad::Absent => Self::Absent,
@@ -1203,7 +1207,7 @@ impl<'a> Read<'a> {
                         LoggedPlayer::Found {
                             world,
                             position,
-                            extra: extra.to_vec(),
+                            extra: extra.into(),
                         }
                     }
                     PLAYER_ABSENT => LoggedPlayer::Absent,
@@ -1238,18 +1242,14 @@ impl<'a> Read<'a> {
         let has_xuid = self.flag("xuid flag")?;
         let xuid = self.u64()?;
         let uuid: [u8; 16] = self.array()?;
-        let device_os = self.i32()?;
-        let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
-        let address = self.address()?;
-        let client = self.client()?;
         Ok(Identity {
-            skin,
-            device_os,
-            address,
-            client,
             name,
             xuid: has_xuid.then_some(xuid),
             uuid: protocol::Uuid::from_bytes(uuid),
+            skin: read_skin(self.bytes()?).map_err(Error::Packet)?,
+            device_os: self.i32()?,
+            address: self.address()?,
+            client: self.client()?,
         })
     }
 
@@ -1273,10 +1273,10 @@ impl<'a> Read<'a> {
             device_model: self.text()?,
             device_id: self.text()?,
             self_signed_id: self.text()?,
+            random_id: i64::from_le_bytes(self.array()?),
             playfab_id: self.text()?,
             game_version: self.text()?,
             server_address: self.text()?,
-            random_id: i64::from_le_bytes(self.array()?),
             port: u16::from_le_bytes(self.array()?),
             join_time_ms: i64::from_le_bytes(self.array()?),
         })
@@ -1501,8 +1501,8 @@ fn put_identity(identity: &Identity, out: &mut Vec<u8>) -> Result<()> {
     out.push(u8::from(identity.xuid.is_some()));
     out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
     out.extend_from_slice(identity.uuid.as_bytes());
-    out.extend_from_slice(&identity.device_os.to_le_bytes());
     put_bytes(&skin_bytes(&identity.skin).map_err(Error::Packet)?, out)?;
+    out.extend_from_slice(&identity.device_os.to_le_bytes());
     match identity.address {
         Some(IpAddr::V4(a)) => {
             out.push(ADDRESS_V4);
@@ -1534,17 +1534,13 @@ fn put_client(client: &Client, out: &mut Vec<u8>) -> Result<()> {
     } = client;
     put_bytes(locale.as_bytes(), out)?;
     out.extend_from_slice(&u32::from(*input_mode).to_le_bytes());
-    for text in [
-        device_model,
-        device_id,
-        self_signed_id,
-        playfab_id,
-        game_version,
-        server_address,
-    ] {
+    for text in [device_model, device_id, self_signed_id] {
         put_bytes(text.as_bytes(), out)?;
     }
     out.extend_from_slice(&random_id.to_le_bytes());
+    for text in [playfab_id, game_version, server_address] {
+        put_bytes(text.as_bytes(), out)?;
+    }
     out.extend_from_slice(&port.to_le_bytes());
     out.extend_from_slice(&join_time_ms.to_le_bytes());
     Ok(())
@@ -2491,10 +2487,12 @@ mod tests {
             Response::Player {
                 key: PlayerKey::offline("Steve"),
                 data: PlayerLoad::Found(data.clone()),
+                logged: LoggedPlayer::of(&PlayerLoad::Found(data.clone())),
             },
             Response::Player {
                 key: PlayerKey::xuid(3),
                 data: PlayerLoad::Absent,
+                logged: LoggedPlayer::of(&PlayerLoad::Absent),
             },
         ];
         let mut log = InputLog::default();
@@ -2538,6 +2536,42 @@ mod tests {
                 .map(drop)
                 .map_err(|_| crate::protocol::Error::Size)
         });
+    }
+
+    /// A player load is logged with the extra bytes the save thread encoded, shared and not
+    /// encoded again on the tick.
+    #[test]
+    fn a_player_load_is_logged_with_the_save_thread_s_extra_bytes() {
+        use crate::storage::PlayerKey;
+
+        let data = PlayerData {
+            world: "world".to_owned(),
+            position: [0.0; 3],
+            extra: crate::nbt::Compound::new(),
+        };
+        let logged = LoggedPlayer::of(&PlayerLoad::Found(data.clone())).unwrap();
+        let LoggedPlayer::Found { extra: sent, .. } = &logged else {
+            panic!("{logged:?}");
+        };
+        let sent = Arc::clone(sent);
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.response(&Response::Player {
+            key: PlayerKey::offline("Steve"),
+            data: PlayerLoad::Found(data),
+            logged: Ok(logged),
+        });
+        let answers = &log.last_segment().ticks[0].responses;
+        let [
+            Answer::Player {
+                data: LoggedPlayer::Found { extra, .. },
+                ..
+            },
+        ] = &answers[..]
+        else {
+            panic!("{answers:?}");
+        };
+        assert!(Arc::ptr_eq(extra, &sent));
     }
 
     #[test]

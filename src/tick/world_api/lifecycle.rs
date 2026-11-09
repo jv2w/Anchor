@@ -35,7 +35,7 @@ use crate::tick::checkpoint::{self, Codec};
 use crate::tick::{Context, SessionId, Settings, State, dispatch, player, survival, view};
 use crate::world::{self, ChunkPos, Generators, Kind, World};
 
-/// The worlds the server had this run, each at its place ([`crate::save::place`]), loaded or not.
+/// The worlds the server had this run, each at its place ([`crate::save::list_index`]), loaded or not.
 /// A world is found by its index, which no world that takes its place later shares.
 #[derive(Debug)]
 pub(in crate::tick) struct Worlds(Vec<World>);
@@ -52,7 +52,7 @@ impl Worlds {
     /// The world at `index`.
     pub(in crate::tick) fn get(&self, index: WorldIndex) -> Option<&World> {
         self.0
-            .get(crate::save::place(index))
+            .get(crate::save::list_index(index))
             .filter(|w| w.id().index() == index)
     }
 
@@ -74,7 +74,7 @@ impl Worlds {
     /// The world at `index`, to change it.
     pub(in crate::tick) fn get_mut(&mut self, index: WorldIndex) -> Option<&mut World> {
         self.0
-            .get_mut(crate::save::place(index))
+            .get_mut(crate::save::list_index(index))
             .filter(|w| w.id().index() == index)
     }
 
@@ -86,7 +86,7 @@ impl Worlds {
     /// Puts `world` at the place of its index: the next place, or the place of a world it
     /// replaces.
     fn put(&mut self, world: World) {
-        match self.0.get_mut(crate::save::place(world.id().index())) {
+        match self.0.get_mut(crate::save::list_index(world.id().index())) {
             Some(slot) => *slot = world,
             None => self.0.push(world),
         }
@@ -258,7 +258,7 @@ impl Catalog {
 
     /// Whether the world at `index` is loaded.
     pub(in crate::tick) fn is_loaded(&self, index: WorldIndex) -> bool {
-        self.loaded.get(crate::save::place(index)) == Some(&Some(index))
+        self.loaded.get(crate::save::list_index(index)) == Some(&Some(index))
     }
 
     /// The index of the world named `name`, in any letter case, that the server has and that is
@@ -297,7 +297,7 @@ impl Catalog {
         self.free = slots
             .iter()
             .filter(|s| s.is_gone() && next_index(s.index).is_some())
-            .map(|s| crate::save::place(s.index))
+            .map(|s| crate::save::list_index(s.index))
             .collect();
         self.stored = Codec::decode(r)?;
         self.left_out = Codec::decode(r)?;
@@ -317,7 +317,7 @@ impl Catalog {
     /// Notes that the world at `index` is loaded: at its place, or at the next place for a new
     /// one.
     fn mark_loaded(&mut self, index: WorldIndex) {
-        match self.loaded.get_mut(crate::save::place(index)) {
+        match self.loaded.get_mut(crate::save::list_index(index)) {
             Some(slot) => *slot = Some(index),
             // Places are taken in order, so a new one is the next.
             None => self.loaded.push(Some(index)),
@@ -326,7 +326,7 @@ impl Catalog {
 
     /// Notes that the world at `index` is not loaded.
     fn mark_unloaded(&mut self, index: WorldIndex) {
-        if let Some(slot) = self.loaded.get_mut(crate::save::place(index)) {
+        if let Some(slot) = self.loaded.get_mut(crate::save::list_index(index)) {
             *slot = None;
         }
     }
@@ -336,7 +336,7 @@ impl Catalog {
     fn note_gone(&mut self, index: WorldIndex, name: &str) {
         self.names.remove(&world_name_key(name));
         if next_index(index).is_some() {
-            self.free.insert(crate::save::place(index));
+            self.free.insert(crate::save::list_index(index));
         }
     }
 }
@@ -705,7 +705,7 @@ impl Context<'_> {
     fn set_time_stopped(&mut self, world: world::Id, stopped: bool) -> world::Result<()> {
         let w = super::loaded_index(self.state, world)?;
         super::world_at_mut(self.state, w).set_time_stopped(stopped);
-        let packet = survival::clock_state(self.state, w);
+        let packet = survival::clock_state(super::world_at(self.state, w));
         super::send_to_world(self.state, w, &packet);
         Ok(())
     }
@@ -995,7 +995,7 @@ fn install(
     world.set_lighting(state.settings.light_mode());
     set_view(state, index, options);
     let catalog = &mut state.catalog;
-    catalog.free.remove(&crate::save::place(index));
+    catalog.free.remove(&crate::save::list_index(index));
     catalog.names.insert(world_name_key(world.name()), index);
     catalog.mark_loaded(index);
     state.worlds.put(world);
@@ -1009,7 +1009,7 @@ fn install(
 fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
     let settings = &mut state.settings;
     let view = settings.global_view.apply(&options.settings());
-    match settings.world_views.get_mut(crate::save::place(index)) {
+    match settings.world_views.get_mut(crate::save::list_index(index)) {
         Some(slot) => *slot = view,
         // Every place has view values, and a new place is the next one.
         None => settings.world_views.push(view),

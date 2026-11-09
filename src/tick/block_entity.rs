@@ -155,11 +155,17 @@ impl BlockEntities {
         }
     }
 
-    /// The number of loaded chunks, viewer entries and waiting spills (for leak tests).
+    /// The sizes of every table (for leak tests).
     #[cfg(test)]
-    pub(super) fn sizes(&self) -> (usize, usize, usize) {
-        let spills = self.chunks.values().map(|c| c.spills.len()).sum();
-        (self.chunks.len(), self.viewers.len(), spills)
+    pub(super) fn sizes(&self) -> Sizes {
+        Sizes {
+            chunks: self.chunks.len(),
+            changed: self.changed.len(),
+            viewers: self.viewers.len(),
+            spilling: self.spilling.len(),
+            marked: self.marked.len(),
+            spills: self.chunks.values().map(|c| c.spills.len()).sum(),
+        }
     }
 
     /// The sessions with a window open on the block at `pos`.
@@ -454,8 +460,7 @@ impl BlockEntities {
 }
 
 /// Every field but the chunks with spills, which are `chunks` again, and the marked block
-/// entities, which are empty between ticks as the outboxes are: only the delivery of a tick's
-/// output (a quit listener) can mark one before the next tick sends it.
+/// entities, which are empty between ticks as the outboxes are (the boundary sends what it marks).
 ///
 /// Each block entity goes in its saved form, built when the checkpoint is taken: the cost is one
 /// [`BlockEntity::write`] for each loaded block entity, which are the containers and the few
@@ -491,6 +496,24 @@ impl super::checkpoint::Codec for BlockEntities {
             marked: BTreeSet::new(),
         })
     }
+}
+
+/// The sizes of the store's tables ([`BlockEntities::sizes`], for leak tests).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct Sizes {
+    /// The loaded chunks.
+    pub(super) chunks: usize,
+    /// The chunks changed since the last save.
+    pub(super) changed: usize,
+    /// The viewer entries.
+    pub(super) viewers: usize,
+    /// The chunks with spills waiting.
+    pub(super) spilling: usize,
+    /// The block entities marked to be sent.
+    pub(super) marked: usize,
+    /// The waiting spills.
+    pub(super) spills: usize,
 }
 
 /// One chunk's block entities. Its saved list, the three together, stays within what a list
@@ -539,6 +562,10 @@ impl Chunk {
                 crate::tick::rules::reads::add(|r| r.clones += 1);
                 free.insert(BlockEntity::read(nbt.clone(), pos, custom));
             } else {
+                // Safety exception to "corrupt data is neither read nor overwritten": kept as
+                // read, the second would take the place once the first is broken and drop its
+                // items again (an item copy); setting the whole chunk aside would leave a hole
+                // in an imported world. So it is dropped, and the next save leaves it out.
                 warn!(
                     x = pos.x,
                     y = pos.y,
@@ -1077,7 +1104,15 @@ pub(super) fn placed(
     item: &Stack,
     face: Face,
 ) {
-    if create(state, world, pos, session, item, face) {
+    if create(
+        state,
+        world,
+        pos,
+        session,
+        item,
+        face,
+        entity::Raise::Events,
+    ) {
         mark_spawn(state, world, pos);
     }
 }
@@ -1091,7 +1126,8 @@ pub(super) fn placed(
 ///
 /// Breaking ([`interact::destroy_deferring_hooks`]) and placing ([`placed`]) do their block entities
 /// themselves; this catches every other change: a task's or a command's `World::set_block`, an
-/// explosion, a generator's blocks. A block entity of a kind Anchor does not type
+/// explosion. A generator's blocks are no change: they get theirs on first use ([`missing`],
+/// [`Context::block_entity_mut`](crate::Context::block_entity_mut), [`own_item`]). A block entity of a kind Anchor does not type
 /// ([`Kind::Other`]) belongs to blocks Anchor cannot tell, so it goes only when its block becomes
 /// air.
 pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
@@ -1124,11 +1160,19 @@ pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos)
 /// makes a block's block entity with the block, and the official server sends no `BlockActorData`
 /// when a window opens; a chest that pairs sends both halves as on placing.
 pub(super) fn missing(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    create(state, world, pos, None, &Stack::EMPTY, Face::Up);
+    create(
+        state,
+        world,
+        pos,
+        None,
+        &Stack::EMPTY,
+        Face::Up,
+        entity::Raise::Events,
+    );
 }
 
 /// Creates the block entity of the block at `pos` as [`placed`] describes; false if the block
-/// has none.
+/// has none. A chest's pairing raises [`ChestPair`] only as `raise` says.
 fn create(
     state: &mut State,
     world: WorldIndex,
@@ -1136,6 +1180,7 @@ fn create(
     session: Option<SessionId>,
     item: &Stack,
     face: Face,
+    raise: entity::Raise,
 ) -> bool {
     let Some(block) = block_at(state, world, pos) else {
         return false;
@@ -1196,21 +1241,22 @@ fn create(
     // `discard` above emptied `pos`: nothing is replaced here.
     state.rules.block_entities.insert(world, pos, entity);
     if is_chest {
-        pair_chest(state, world, pos, block, session);
+        pair_chest(state, world, pos, block, session, raise);
     }
     drop_all(state, world, pos.to_center(), unfit);
     true
 }
 
-/// Pairs the new chest at `pos` with a free chest of the same kind and facing beside it. After a
-/// [`ChestPair`] listener the chests must be as they were, and the hand of `session` (the player
-/// placing, whose interaction goes on with it) the same stack.
+/// Pairs the new chest at `pos` with a free chest of the same kind and facing beside it, raising
+/// [`ChestPair`] as `raise` says. After a listener the chests must be as they were, and the hand
+/// of `session` (the player placing, whose interaction goes on with it) the same stack.
 fn pair_chest(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
     block: block::State,
     session: Option<SessionId>,
+    raise: entity::Raise,
 ) {
     let Some(facing) = cardinal(block) else {
         return;
@@ -1236,7 +1282,8 @@ fn pair_chest(
         if !pairable(state) {
             continue;
         }
-        let mut event = dispatch::heard::<ChestPair>(state).then(|| {
+        let raised = raise == entity::Raise::Events && dispatch::heard::<ChestPair>(state);
+        let mut event = raised.then(|| {
             let (left, right) = if clockwise {
                 (other, pos)
             } else {
@@ -1425,10 +1472,19 @@ fn take_contents(entity: &mut BlockEntity, out: &mut Vec<Stack>) {
 }
 
 /// The item a block whose item form is its block entity's turns into (a bed and a banner): the
-/// bed of its colour, the banner of its colour with its patterns. `None` for other blocks.
+/// bed of its colour, the banner of its colour with its patterns. A block without its block
+/// entity (a generator's block, never used) turns into what an empty one gives, as if it was
+/// made on this first use. `None` for other blocks.
 pub(super) fn own_item(state: &State, world: WorldIndex, pos: BlockPos) -> Option<Stack> {
     let empty = Compound::new();
-    match &state.rules.block_entities.get(world, pos)?.kind {
+    let fresh;
+    let kind = if let Some(entity) = state.rules.block_entities.get(world, pos) {
+        &entity.kind
+    } else {
+        fresh = Kind::of(block_at(state, world, pos)?)?;
+        &fresh
+    };
+    match kind {
         Kind::Bed { colour } => {
             let t = item::Type::from_name("minecraft:bed", u16::from(*colour), None, &empty)?;
             Some(Stack::new(t, 1))
@@ -1901,7 +1957,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(store.take_changed(), vec![(key, list.clone())]);
         assert_eq!(store.take_changed(), Vec::new());
         assert_eq!(store.unload(key), None);
-        assert_eq!(store.sizes(), (0, 0, 0));
+        assert_eq!(store.sizes(), Sizes::default());
     }
 
     /// A world with the chunk at `key` loaded and empty (air).
@@ -2743,8 +2799,8 @@ pub(in crate::tick) mod tests {
             .load_list(key, &[], world, &Registry::default());
     }
 
-    /// A block a generator or a task set that takes a block entity gets an empty one in the
-    /// change phase, with its slots empty: a chest, a sign, an ender chest.
+    /// A block a task set that takes a block entity gets an empty one in the change phase, with
+    /// its slots empty: a chest, a sign, an ender chest.
     #[test]
     fn a_block_set_without_its_block_entity_gets_an_empty_one() {
         let (mut state, key) = server();

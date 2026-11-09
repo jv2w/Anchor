@@ -221,7 +221,7 @@ pub(super) fn reaches(
     let e = state.rules.entities.get(target).filter(|e| !e.flagged)?;
     if player.phase != Phase::Spawned
         || !(hooks.is_alive)(player)
-        || survival::game_mode(state, player) == GameMode::Spectator
+        || player.game_mode() == GameMode::Spectator
         || player.world != e.world
     {
         return None;

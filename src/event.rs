@@ -440,8 +440,8 @@ use crate::tick::Context;
 /// The share of destroyed blocks an incendiary explosion sets on fire, which
 /// [`EntityPreExplode::set_incendiary`] and the explosion rules use.
 pub(crate) const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
-/// The largest radius, in blocks, of an explosion: a listener's larger radius is cut to it.
-pub(crate) const MAX_EXPLOSION_RADIUS: f64 = 8.0;
+/// The largest size (its radius in blocks) of an explosion: a larger size is cut to it.
+pub(crate) const MAX_EXPLOSION_SIZE: f64 = 8.0;
 
 /// A player or another entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -508,11 +508,11 @@ fn set_clamped(slot: &mut f64, value: f64, low: f64, high: f64) {
     }
 }
 
-/// Stores the radius of an explosion in `slot`, limited to [`MAX_EXPLOSION_RADIUS`]; a value that
-/// is not finite or not above 0 changes nothing.
-fn set_radius(slot: &mut f64, radius: f64) {
-    if radius.is_finite() && radius > 0.0 {
-        *slot = math::min(radius, MAX_EXPLOSION_RADIUS);
+/// Stores the size of an explosion in `slot`, limited to [`MAX_EXPLOSION_SIZE`]; a value that is
+/// not finite or not above 0 changes nothing.
+fn set_size(slot: &mut f64, size: f64) {
+    if size.is_finite() && size > 0.0 {
+        *slot = math::min(size, MAX_EXPLOSION_SIZE);
     }
 }
 

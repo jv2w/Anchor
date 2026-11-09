@@ -195,8 +195,6 @@ pub(super) struct EffectType {
     pub(super) name: String,
     pub(super) id: u8,
     pub(super) text: String,
-    #[serde(rename = "classes")]
-    pub(super) _classes: Vec<String>,
     pub(super) colour: Colour,
     pub(super) bad: bool,
     pub(super) instant: bool,

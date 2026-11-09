@@ -555,15 +555,11 @@ mod tests {
 
     #[test]
     fn a_file_another_crate_pulls_in_also_runs_that_crates_tests() {
-        // `apply.rs` is a module of the library and, by `#[path]`, of xtask's `gen::upgrade`;
-        // `continental.kv` is included from the crate folder by `src/import/tests.rs`.
-        let p = plan(&[
-            "src/import/upgrade/apply.rs",
-            "xtask/data/import/continental.kv",
-        ]);
+        // `apply.rs` is a module of the library and, by `#[path]`, of xtask's `gen::upgrade`.
+        let p = plan(&["src/import/upgrade/apply.rs"]);
         assert!(p.code && !p.all_lib && p.xtask_unit);
         let lib: Vec<&str> = p.lib.iter().map(String::as_str).collect();
-        assert_eq!(lib, ["import::", "import::upgrade::"]);
+        assert_eq!(lib, ["import::upgrade::"]);
     }
 
     #[test]

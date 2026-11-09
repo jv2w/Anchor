@@ -3,21 +3,17 @@
 
 use std::collections::BTreeMap;
 
-use super::chunk::Layer;
+use super::chunk::{CHUNK_TAG_OLD_VERSION, CHUNK_TAG_VERSION, Layer, MAX_CHUNK_VERSION, prefix};
 use super::*;
+use crate::block::Kind;
+use crate::export::chunk::{DATA_3D, SAME_BIOMES, values};
 use crate::import::chunk::tests::key;
 use crate::import::leveldb::tests::database_files;
+use crate::nbt::{Compound, Value};
 use crate::save::tests::TempDir;
+use crate::storage::codec::tests::block;
+use crate::world::{Chunk, ChunkPos};
 
-/// Keys of two chunks of a world a 1.21 game saved, with values a strict reader rejects, as
-/// (little-endian `u32` length, bytes) of each key then its value, in key order: chunk (-198, 8),
-/// chunk version 41, whose `Data3D` holds 25 biome storages where 24 are read; chunk (-5, -44),
-/// with its block entities and three entities whose NBT holds a string of binary bytes (the
-/// `StorageKey` of `EntityStorageKeyComponent`), which is not UTF-8.
-const CONTINENTAL: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/xtask/data/import/continental.kv"
-));
 /// The world the official server 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
 /// sign, a pig, an armor stand and pending ticks over five runs, so it has a table and a live log.
 pub(super) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
@@ -179,27 +175,107 @@ fn a_read_takes_the_chunks_keys_only() {
     assert_eq!(ids_of(corner), vec!["corner"]);
 }
 
-/// The key and value pairs of [`CONTINENTAL`].
-pub(super) fn continental() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-    fn take(rest: &mut &[u8]) -> Vec<u8> {
-        let (len, after) = rest.split_first_chunk::<4>().unwrap();
-        let (bytes, after) = after.split_at(usize::try_from(u32::from_le_bytes(*len)).unwrap());
-        *rest = after;
-        bytes.to_vec()
-    }
-    let mut rest = CONTINENTAL;
+/// An entity's little-endian NBT: a compound whose string `StorageKey` holds the bytes of `id`,
+/// which are not UTF-8, as the game writes an entity's storage key.
+fn entity_nbt(id: [u8; 8]) -> Vec<u8> {
+    let name = b"StorageKey";
+    // A compound with an empty name, then a string tag.
+    let mut out = vec![10, 0, 0, 8];
+    out.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+    out.extend_from_slice(name);
+    out.extend_from_slice(&u16::try_from(id.len()).unwrap().to_le_bytes());
+    out.extend_from_slice(&id);
+    // The compound's end tag.
+    out.push(0);
+    out
+}
+
+/// The keys and values of two chunks as the export writes them ([`values`]), changed to hold
+/// values a strict reader rejects, and three entities. Chunk (-198, 8) has one sub-chunk, the
+/// chunk version before the newest and the version key of old worlds besides, and a `Data3D` of
+/// 25 biome storages where a reader reads 24. Chunk (-5, -44) has its first sub-chunk at y 4 and
+/// 8 block entities, and the NBT of the three entities holds strings of bytes that are not UTF-8
+/// ([`entity_nbt`]).
+pub(super) fn strict_reader_chunks() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut writes = Vec::new();
-    while !rest.is_empty() {
-        let key = take(&mut rest);
-        writes.push((key, Some(take(&mut rest))));
+    let mut terrain = Chunk::new();
+    for x in 0..16 {
+        for z in 0..16 {
+            terrain
+                .set_block(x, 64, z, Kind::Stone.default_state())
+                .unwrap();
+        }
     }
+    let old_version = MAX_CHUNK_VERSION - 1;
+    let first = ChunkPos::new(-198, 8);
+    for (key, mut value) in values(first, &crate::save::to_record(&terrain), &[]).unwrap() {
+        match key[8..] {
+            [CHUNK_TAG_VERSION] => value = vec![old_version],
+            // One storage more than the sub-chunks.
+            [DATA_3D] => value.push(SAME_BIOMES),
+            _ => {}
+        }
+        writes.push((key, Some(value)));
+    }
+    writes.push((
+        key(first.x, first.z, &[CHUNK_TAG_OLD_VERSION]),
+        Some(vec![old_version]),
+    ));
+    let second = ChunkPos::new(-5, -44);
+    let mut terrain = Chunk::new();
+    let mut block_entities = Vec::new();
+    for (n, (kind, id)) in (1_u8..).zip([
+        (Kind::SporeBlossom, "SporeBlossom"),
+        (Kind::BlastFurnace, "BlastFurnace"),
+        (Kind::FlowerPot, "FlowerPot"),
+        (Kind::Cauldron, "Cauldron"),
+        (Kind::OakSign, "Sign"),
+        (Kind::OakSign, "Sign"),
+        (Kind::OakSign, "Sign"),
+        (Kind::SporeBlossom, "SporeBlossom"),
+    ]) {
+        terrain.set_block(n, 64, n, kind.default_state()).unwrap();
+        let mut compound = Compound::from([
+            ("id".to_owned(), Value::String(id.to_owned())),
+            ("x".to_owned(), Value::Int(second.x * 16 + i32::from(n))),
+            ("y".to_owned(), Value::Int(64)),
+            ("z".to_owned(), Value::Int(second.z * 16 + i32::from(n))),
+        ]);
+        match id {
+            "FlowerPot" => {
+                let plant = block("minecraft:poppy", &[]);
+                compound.insert("PlantBlock".to_owned(), Value::Compound(plant));
+            }
+            "Sign" => {
+                let text =
+                    Compound::from([("Text".to_owned(), Value::String(format!("sign {n}")))]);
+                compound.insert("FrontText".to_owned(), Value::Compound(text));
+            }
+            _ => {}
+        }
+        block_entities.push(compound);
+    }
+    let listed: Vec<&Compound> = block_entities.iter().collect();
+    for (key, value) in values(second, &crate::save::to_record(&terrain), &listed).unwrap() {
+        writes.push((key, Some(value)));
+    }
+    let mut ids = Vec::new();
+    for n in 1..=3 {
+        let id = [0xff, 0xfe, 0x80, 0xc0, 0, 0, 0, n];
+        writes.push(([&b"actorprefix"[..], &id].concat(), Some(entity_nbt(id))));
+        ids.extend_from_slice(&id);
+    }
+    writes.push((
+        [&b"digp"[..], &prefix(second.x, second.z)].concat(),
+        Some(ids),
+    ));
     writes
 }
 
 #[test]
-fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
-    let dir = TempDir::new("import-continental");
-    write_world(&dir.0, &continental());
+fn chunks_a_strict_reader_rejects_read_with_their_blocks_and_block_entities() {
+    let dir = TempDir::new("import-strict");
+    write_world(&dir.0, &strict_reader_chunks());
     let mut source = Source::open(&dir.0).unwrap();
     let catalog = source.catalog().unwrap();
     assert_eq!(catalog.chunks, vec![(-198, 8), (-5, -44)]);
@@ -207,7 +283,7 @@ fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
     let raw = chunk::decode(&source.read(-198, 8).unwrap()).unwrap();
     assert_eq!(raw.sections.len(), 1);
     assert!(raw.block_entities.is_empty());
-    assert_eq!(raw.ignored, vec![0x2b, 0x3d, 0x40, 0x76]);
+    assert_eq!(raw.ignored, vec![0x2b, 0x36, 0x76]);
     let raw = chunk::decode(&source.read(-5, -44).unwrap()).unwrap();
     assert_eq!(raw.sections[0].y, 4);
     let ids: Vec<String> = raw.block_entities.iter().map(|e| text(e, "id")).collect();
@@ -224,10 +300,7 @@ fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
             "SporeBlossom"
         ]
     );
-    assert_eq!(
-        raw.ignored,
-        vec![0x2b, 0x35, 0x36, 0x3d, 0x3f, 0x40, 0x41, 0x76]
-    );
+    assert_eq!(raw.ignored, vec![0x2b, 0x36]);
 }
 
 #[expect(

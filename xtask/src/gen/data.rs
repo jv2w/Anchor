@@ -652,8 +652,6 @@ struct DumpBlock {
 struct DumpItem {
     bedrock: Json,
     data: ItemData,
-    #[serde(rename = "names")]
-    _names: Vec<String>,
     vanilla: bool,
 }
 

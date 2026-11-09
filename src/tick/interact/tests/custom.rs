@@ -210,7 +210,7 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
         &mut h.state,
         0,
         at,
-        Destroy::Player {
+        &Destroy::Player {
             session,
             tool: Stack::EMPTY
         }
@@ -287,7 +287,7 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     assert_eq!(cx.trade_offers(id), Some(Vec::new()));
     let first = Offer::new(wheat.clone(), emerald.clone(), 16)
         .with_trader_xp(2)
-        .with_any_damage();
+        .any_damage();
     let second = Offer::new(emerald.clone(), bread.clone(), 8)
         .with_second_payment(wheat.clone())
         .with_tier(1)

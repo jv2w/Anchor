@@ -480,7 +480,7 @@ fn actor(state: &State, session: SessionId) -> Option<Actor> {
         feet: survival::feet(player),
         yaw: survival::rotation(player).0,
         look: survival::look_direction(player),
-        mode: survival::game_mode(state, player),
+        mode: player.game_mode(),
         sneaking: survival::is_sneaking(player),
         sneak_pressed: survival::is_sneak_pressed(player),
     })
@@ -641,12 +641,17 @@ fn sign_edit_check(
 /// then plays the break effect and runs the custom blocks' `on_break`. False if the position is
 /// not loaded or already air.
 #[cfg(test)]
-pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause: Destroy) -> bool {
-    let breaker = match &cause {
+pub(super) fn destroy(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    cause: &Destroy,
+) -> bool {
+    let breaker = match cause {
         Destroy::Player { session, .. } => Some(*session),
         Destroy::Explosion { .. } => None,
     };
-    let particles = match &cause {
+    let particles = match cause {
         Destroy::Player { .. } => BreakParticles::Shown,
         Destroy::Explosion { .. } => BreakParticles::Hidden,
     };
@@ -662,18 +667,14 @@ pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause
 /// halves of a bed, door or double plant go together, so a block group breaks and drops once. An
 /// explosion plays no per-block break effect (a large explosion would otherwise fill the
 /// viewers' outboxes). `None` if the position is not loaded or already air.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "consistency: every caller hands over the cause it built, so it is taken by value"
-)]
 pub(super) fn destroy_deferring_hooks(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
-    cause: Destroy,
+    cause: &Destroy,
 ) -> Option<Affected> {
-    let plan = plan_destruction(state, world, pos, &cause)?;
-    apply_destruction(state, world, pos, &cause, plan)
+    let plan = plan_destruction(state, world, pos, cause)?;
+    apply_destruction(state, world, pos, cause, plan)
 }
 
 /// Runs the `on_break` hooks of the custom blocks a deferred destruction removed.
@@ -1394,7 +1395,7 @@ fn return_items(state: &mut State, session: SessionId, old: &Stack, new: Stack) 
         .players
         .get(&session)
         .expect("an acting player is in the game until its action ends");
-    let finite = survival::has_finite_resources(survival::game_mode(state, player));
+    let finite = survival::has_finite_resources(player.game_mode());
     let (world, eye) = (player.world, player.position);
     let holds_old = player.inventory.held().same(old);
     // A tool worn out.
@@ -1608,7 +1609,7 @@ fn drops_of(
             let finite = state
                 .players
                 .get(session)
-                .is_some_and(|p| survival::has_finite_resources(survival::game_mode(state, p)));
+                .is_some_and(|p| survival::has_finite_resources(p.game_mode()));
             if !finite {
                 return Vec::new();
             }

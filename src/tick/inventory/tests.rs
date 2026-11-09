@@ -141,7 +141,7 @@ impl World {
 
     pub(super) fn try_slot(&self, s: SessionId, container: C, slot: u8) -> Option<Slot> {
         let inv = self.inv(s);
-        if let Some(window) = inv.window.as_ref().filter(|w| w.id != 0)
+        if let Some(window) = inv.window.as_ref().filter(|w| w.id.is_some())
             && let (WindowKind::Menu { .. }, Some(menu), C::LevelEntity) =
                 (window.kind, &inv.menu, container)
         {
@@ -168,7 +168,13 @@ impl World {
     }
 
     pub(super) fn close(&mut self, s: SessionId) {
-        if let Some(id) = self.inv(s).window.as_ref().map(|w| w.id) {
+        // A window still waiting to open has no ID the client knows; it closes with 0.
+        if let Some(id) = self
+            .inv(s)
+            .window
+            .as_ref()
+            .map(|w| w.id.unwrap_or_default())
+        {
             self.client_close(s, id);
         }
     }
@@ -735,7 +741,7 @@ pub(super) fn check_slots(state: &State) {
             for s in &w.ui {
                 check(&s.stack, Some(s.id));
             }
-            if w.id != 0 && matches!(w.kind, WindowKind::Container { .. }) {
+            if w.id.is_some() && matches!(w.kind, WindowKind::Container { .. }) {
                 let stacks = block_stacks(w.kind, &state.rules.block_entities);
                 assert_eq!(stacks.len(), w.ids.len());
                 for (s, id) in stacks.iter().zip(&w.ids) {
@@ -749,7 +755,7 @@ pub(super) fn check_slots(state: &State) {
                     .expect("a menu window has its menu")
                     .stacks;
                 assert_eq!(stacks.len(), kind.size());
-                if w.id != 0 {
+                if w.id.is_some() {
                     assert_eq!(stacks.len(), w.ids.len());
                     for (s, id) in stacks.iter().zip(&w.ids) {
                         check(s, Some(*id));
@@ -778,7 +784,7 @@ pub(super) fn check_slots(state: &State) {
 
 /// The request slots a player can name now.
 fn addressable(inv: &Inventory, rng: &mut Random) -> Vec<(C, u8)> {
-    let window = inv.window.as_ref().filter(|w| w.id != 0);
+    let window = inv.window.as_ref().filter(|w| w.id.is_some());
     let mut out = Vec::new();
     for i in 0..36 {
         let c = match rng.below(3) {
@@ -1568,8 +1574,8 @@ fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
         w.tick(Vec::new());
         let now = w.state.rules.block_entities.sizes();
         assert_eq!(
-            (now.1, now.2),
-            (start.1, start.2),
+            (now.viewers, now.spills),
+            (start.viewers, start.spills),
             "no viewer or spill is left"
         );
         assert!(w.state.players.is_empty());
@@ -1721,13 +1727,17 @@ fn a_broken_chest_spills_its_items_and_waits_while_the_world_is_full() {
     block_entity::removed(&mut w.state, 0, chest);
     assert!(w.inv(s).window.is_none());
     assert_eq!(totals(&w.state), before);
-    assert_eq!(w.state.rules.block_entities.sizes().2, 1, "one spill waits");
+    assert_eq!(
+        w.state.rules.block_entities.sizes().spills,
+        1,
+        "one spill waits"
+    );
     block_entity::tick(&mut w.state);
     assert_eq!(dropped().len(), 1, "the world is still full");
     set_room(usize::MAX);
     block_entity::tick(&mut w.state);
     assert_eq!(dropped().len(), 2);
-    assert_eq!(w.state.rules.block_entities.sizes().2, 0);
+    assert_eq!(w.state.rules.block_entities.sizes().spills, 0);
     assert_eq!(totals(&w.state), before);
 }
 
@@ -1777,7 +1787,7 @@ fn window_ids_count_from_two_and_a_new_window_waits_for_the_close() {
     let barrel = AT;
     w.place_block(barrel, blk::Kind::Barrel.default_state());
     w.open_inventory(s);
-    assert_eq!(w.inv(s).window.as_ref().unwrap().id, 2);
+    assert_eq!(w.inv(s).window.as_ref().unwrap().id, Some(2));
     w.sent(s);
     // Opening the barrel while the inventory is open: the server closes it first.
     assert!(open_block(&mut w.state, s, 0, barrel));
@@ -1793,7 +1803,7 @@ fn window_ids_count_from_two_and_a_new_window_waits_for_the_close() {
         })
     );
     assert!(matches!(&sent[1], Packet::LevelSoundEvent(e) if e.sound_type == "block.barrel.open"));
-    assert_eq!(w.inv(s).window.as_ref().unwrap().id, 0, "waiting");
+    assert_eq!(w.inv(s).window.as_ref().unwrap().id, None, "waiting");
     w.client_close(s, 2);
     let sent = w.sent(s);
     assert!(
@@ -1801,7 +1811,7 @@ fn window_ids_count_from_two_and_a_new_window_waits_for_the_close() {
             .any(|p| matches!(p, Packet::ContainerOpen(o) if o.window_id == 3)),
         "{sent:?}"
     );
-    assert_eq!(w.inv(s).window.as_ref().unwrap().id, 3);
+    assert_eq!(w.inv(s).window.as_ref().unwrap().id, Some(3));
     // The client closing "window -1" closes the latest.
     w.client_close(s, 255);
     assert!(w.inv(s).window.is_none());
@@ -2127,7 +2137,7 @@ fn the_trade_window_takes_payments_and_gives_them_back_on_close() {
     w.give(s, Stack::new(item(it::Kind::Emerald), 10));
     w.sent(s);
     let window = open_trade(&mut w.state, s, crate::entity::Id::new(1, 0)).unwrap();
-    assert_eq!(w.inv(s).window.as_ref().unwrap().id, window);
+    assert_eq!(w.inv(s).window.as_ref().unwrap().id, Some(window));
     assert!(w.sent(s).is_empty(), "the trade module sends UpdateTrade");
     let emeralds = w.id(s, C::CombinedHotBarAndInventory, 0);
     let r = w.request(
@@ -2208,7 +2218,11 @@ fn opening_and_closing_every_window_a_hundred_times_leaves_nothing_behind() {
     assert!(w.inv(s).window.is_none() && w.inv(s).pending_close.is_none());
     assert_eq!(w.state.rules.block_entities.sizes(), start);
     w.tick(Vec::new());
-    assert_eq!(w.state.rules.block_entities.sizes().1, 0, "no viewers");
+    assert_eq!(
+        w.state.rules.block_entities.sizes().viewers,
+        0,
+        "no viewers"
+    );
 }
 
 #[test]
@@ -2232,9 +2246,9 @@ fn breaking_a_container_drops_its_contents_once() {
             size: 4.0,
             raise: Raise::Quiet,
         };
-        assert!(interact::destroy(&mut w.state, 0, pos, cause()));
+        assert!(interact::destroy(&mut w.state, 0, pos, &cause()));
         assert_eq!(sticks(), slots, "{kind:?}");
-        assert!(!interact::destroy(&mut w.state, 0, pos, cause()));
+        assert!(!interact::destroy(&mut w.state, 0, pos, &cause()));
         assert_eq!(sticks(), slots, "{kind:?}: once");
         assert!(w.state.rules.block_entities.get(0, pos).is_none());
     }

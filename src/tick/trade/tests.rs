@@ -791,7 +791,7 @@ fn too_large_to_send() -> Offers {
         "Recipes".to_owned(),
         Value::List(List::Compound(vec![offer; crate::custom::MAX_OFFERS])),
     )]);
-    Offers::from_nbt(&saved, &crate::custom::Registry::default())
+    Offers::from_nbt(&saved, &crate::custom::Registry::default()).unwrap()
 }
 
 /// A changed list too large to send closes its traders' windows without `InventoryClose`: the
@@ -842,7 +842,7 @@ fn offers_with_counters_survive_saving_through_the_entity() {
     let ids = server.net_ids(1);
     server.traded(1, ids[0], 5);
     let saved = server.offers(v).to_nbt();
-    let back = Offers::from_nbt(&saved, &crate::custom::Registry::default());
+    let back = Offers::from_nbt(&saved, &crate::custom::Registry::default()).unwrap();
     assert_eq!(back.list(), server.offers(v).list());
     assert_eq!(back.list()[0].uses, 5);
     assert_eq!((back.tier(), back.xp()), (1, 10));

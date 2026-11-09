@@ -24,7 +24,7 @@ use crate::protocol::{
     LocatorBarWaypoint, MetadataValue, PlayerListEntry, Skin, Uuid, Waypoint,
     WaypointWorldPosition,
 };
-use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFF_HAND_WINDOW_BYTE};
+use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFFHAND_WINDOW_BYTE};
 use crate::tick::trade::Offers;
 
 /// The particle a potion's cloud shows (the official server's, P6 `potions`).
@@ -796,7 +796,7 @@ pub(super) fn off_hand(runtime_id: u64, stack: &Stack) -> Packet {
         new_item: instance(stack),
         inventory_slot: 0,
         hot_bar_slot: 0,
-        window_id: OFF_HAND_WINDOW_BYTE,
+        window_id: OFFHAND_WINDOW_BYTE,
     })
 }
 

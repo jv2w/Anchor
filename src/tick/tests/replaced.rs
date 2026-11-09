@@ -58,7 +58,11 @@ fn an_exploded_chest_drops_its_contents_once() {
         f64::from(AT.z) + 0.5,
     );
     crate::tick::Context { state: &mut state }
-        .explode(crate::world::Id::DEFAULT, center, 4.0)
+        .explode(crate::action::Explode::new(
+            crate::world::Id::DEFAULT,
+            center,
+            4.0,
+        ))
         .unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
     assert!(

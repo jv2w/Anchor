@@ -53,7 +53,7 @@ pub(super) fn generate(m: &Model<'_>) -> Result<Output, String> {
             Module::Types => &mut types,
             Module::Packet => &mut packet,
         };
-        type_items(m, &sums, &enums, t, module, out, &mut helpers)
+        type_items(m, &sums, &enums, t, module, &mut helpers, out)
             .map_err(|e| format!("{}: {e}", t.name))?;
     }
     for f in &m.ir.functions {
@@ -64,7 +64,7 @@ pub(super) fn generate(m: &Model<'_>) -> Result<Output, String> {
             Module::Types => &mut types_fns,
             Module::Packet => &mut packet_fns,
         };
-        function_items(m, &sums, f, out, &mut helpers).map_err(|e| format!("{}: {e}", f.name))?;
+        function_items(m, &sums, f, &mut helpers, out).map_err(|e| format!("{}: {e}", f.name))?;
     }
     for e in &m.ir.enums {
         let out = match model::module_of(&e.name) {
@@ -320,8 +320,8 @@ fn type_items(
     enums: &BTreeMap<&str, Option<String>>,
     t: &TypeDef,
     module: Module,
-    out: &mut String,
     helpers: &mut BTreeSet<String>,
+    out: &mut String,
 ) -> Result<(), String> {
     let rust = m.named(&t.name, module)?;
     let type_doc = doc(&type_doc(m, t)?, "");
@@ -711,8 +711,8 @@ fn function_items(
     m: &Model<'_>,
     sums: &Summaries,
     f: &Function,
-    out: &mut String,
     helpers: &mut BTreeSet<String>,
+    out: &mut String,
 ) -> Result<(), String> {
     let dirs: &[(bool, Dir)] = if f.io {
         &[(true, Dir::Decode), (false, Dir::Encode)]

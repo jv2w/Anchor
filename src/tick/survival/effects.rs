@@ -79,14 +79,18 @@ impl Active {
 
     /// The public form of the effect of type `effect`.
     pub(super) fn instance(self, effect: Type) -> Instance {
-        Instance::new(
+        let instance = Instance::new(
             effect,
             self.duration_ticks,
             self.amplifier,
             self.visible,
             self.ambient,
-        )
-        .with_infinite(self.infinite)
+        );
+        if self.infinite {
+            instance.infinite()
+        } else {
+            instance
+        }
     }
 
     /// The level: amplifier + 1.
@@ -478,13 +482,13 @@ mod tests {
             .instance()
             .with_duration_ticks(40)
             .with_amplifier(2)
-            .with_visible(false)
-            .with_ambient(true)
-            .with_infinite(true);
+            .without_particles()
+            .ambient()
+            .infinite();
         let active = Active::of(given);
         assert!(active.infinite);
         assert_eq!(active.instance(Type::Speed), given);
-        assert!(!Active::of(given.with_infinite(false)).infinite);
+        assert!(!Active::of(Type::Speed.instance()).infinite);
     }
 
     #[test]

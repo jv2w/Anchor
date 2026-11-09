@@ -1126,7 +1126,7 @@ pub(super) mod tests {
         assert_eq!(reply[25..32], [4, !10, !0, !0, !1, 0, 1]);
         assert_eq!(reply[32..34], 1300_u16.to_be_bytes());
         assert_eq!(reply.len(), 35);
-        // A larger request is cut to `max-mtu-size`.
+        // A larger request is cut to `max-mtu-bytes`.
         let request = Client::request_2(1500, guid, None);
         let replies = offline_reply(&mut listener, addr(1, 2), &request);
         assert_eq!(replies[0][32..34], MAX_MTU.to_be_bytes());

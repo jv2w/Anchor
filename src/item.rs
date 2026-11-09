@@ -38,12 +38,6 @@ use crate::protocol::{self, ItemType, packet};
 /// The data of a custom block's item: a plain block item.
 static CUSTOM_BLOCK_ITEM: Info = Info::custom(MAX_STACK, 0, 1, None, None);
 
-/// The RGB values of the dye colours by dye colour ID (white 0 … black 15).
-const DYES: [u32; 16] = [
-    0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
-    0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
-];
-
 /// The names of the Education Edition items ([`is_education`]), without `minecraft:`.
 const EDUCATION_NAMES: [&str; 15] = [
     "balloon",
@@ -1051,9 +1045,11 @@ pub(crate) struct CreativeEntry {
 impl Enchantment {
     /// The enchantment with this save and network ID, or `None`.
     #[doc(alias = "EnchantmentIdMap::fromId")]
-    pub fn from_id(id: i16) -> Option<Self> {
-        let id = usize::try_from(id).ok()?;
-        table::ENCHANTMENTS_BY_ID.get(id).copied().flatten()
+    pub fn from_id(id: u8) -> Option<Self> {
+        table::ENCHANTMENTS_BY_ID
+            .get(usize::from(id))
+            .copied()
+            .flatten()
     }
 
     /// Every enchantment, in name order.
@@ -1063,12 +1059,12 @@ impl Enchantment {
 
     /// The save and network ID.
     #[doc(alias = "EnchantmentIdMap::toId")]
-    pub fn id(self) -> i16 {
+    pub fn id(self) -> u8 {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: the generated ID table has an entry per enchantment"
         )]
-        i16::from(table::ENCHANTMENT_IDS[self as usize])
+        table::ENCHANTMENT_IDS[self as usize]
     }
 }
 
@@ -1258,11 +1254,6 @@ pub(crate) fn max_runtime_id() -> i16 {
         .map(|e| e.runtime_id)
         .max()
         .expect("the item registry has entries")
-}
-
-/// The opaque ARGB value of a dye colour ID.
-pub(crate) fn dye_argb(colour: u8) -> Option<u32> {
-    DYES.get(usize::from(colour)).map(|rgb| 0xff00_0000 | rgb)
 }
 
 #[cfg(test)]
@@ -1815,8 +1806,7 @@ mod tests {
         for e in Enchantment::all() {
             assert_eq!(Enchantment::from_id(e.id()), Some(*e));
         }
-        assert_eq!(Enchantment::from_id(-1), None);
-        assert_eq!(Enchantment::from_id(1000), None);
+        assert_eq!(Enchantment::from_id(u8::MAX), None);
     }
 
     // api: VanillaItems
@@ -2009,14 +1999,6 @@ mod tests {
                 assert_eq!(places(block::Face::North), Some(wall), "{t:?}");
             }
         }
-    }
-
-    /// Dye colours have their RGB values.
-    #[test]
-    fn dyes_have_their_rgb_values() {
-        // Red: (176, 46, 38).
-        assert_eq!(dye_argb(14), Some(0xffb0_2e26));
-        assert_eq!(dye_argb(16), None);
     }
 
     #[test]

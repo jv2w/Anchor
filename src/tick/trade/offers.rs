@@ -23,7 +23,9 @@
 //! `WasPickedUp`. Unknown offer and root keys are kept and written back. A saved offer Anchor
 //! cannot use (unknown item, a value out of range, a wrong tag type) is skipped with a warning,
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
-//! destroyed).
+//! destroyed). A root value Anchor cannot use (`Recipes` not a compound list, a bad
+//! `TradeTier`, `TradeExperience` or `TierExpRequirements`) leaves the whole entity unread, so
+//! storage keeps it as saved.
 
 use std::fmt;
 
@@ -134,10 +136,11 @@ pub(in crate::tick) struct Offers {
 
 impl Offers {
     /// The offers of a saved entity (its `Offers` compound). Offers Anchor cannot use are
-    /// skipped with a warning and kept to be written back; a bad tier, xp or tier
-    /// requirement list falls back to its default with a warning. Custom items are read
+    /// skipped with a warning and kept to be written back. `None` for a root value Anchor
+    /// cannot use (offers that are not a compound list, a bad tier, xp or tier requirement
+    /// list): the entity is not read and storage keeps its original. Custom items are read
     /// through `custom`, the server's custom content.
-    pub(in crate::tick) fn from_nbt(saved: &Compound, custom: &Registry) -> Self {
+    pub(in crate::tick) fn from_nbt(saved: &Compound, custom: &Registry) -> Option<Self> {
         let mut offers = Self {
             unknown: unknown_keys(saved, &ROOT_KEYS),
             ..Self::default()
@@ -159,32 +162,24 @@ impl Offers {
                 }
             }
             Some(Value::List(List::End)) | None => {}
-            Some(_) => warn!("saved villager offers are not a compound list; none read"),
+            Some(_) => return None,
         }
-        match saved.get(TIER_XP).map(tier_xp) {
-            Some(Some(t)) => offers.tier_xp = t,
-            Some(None) => warn!("saved villager tier requirements are invalid; defaults used"),
-            None => {}
+        if let Some(value) = saved.get(TIER_XP) {
+            offers.tier_xp = tier_xp(value)?;
         }
-        let tier = saved.get(TRADE_TIER).map(|v| match v {
-            Value::Int(t) => u8::try_from(*t).ok().filter(|t| *t <= MAX_TRADE_TIER),
-            _ => None,
-        });
-        match tier {
-            Some(Some(t)) => offers.tier = t,
-            Some(None) => warn!("saved villager tier is invalid; tier 0 used"),
-            None => {}
+        if let Some(value) = saved.get(TRADE_TIER) {
+            let Value::Int(t) = value else {
+                return None;
+            };
+            offers.tier = u8::try_from(*t).ok().filter(|t| *t <= MAX_TRADE_TIER)?;
         }
-        let xp = saved.get(TRADE_XP).map(|v| match v {
-            Value::Int(x) => u32::try_from(*x).ok(),
-            _ => None,
-        });
-        match xp {
-            Some(Some(x)) => offers.xp = x,
-            Some(None) => warn!("saved villager xp is invalid; 0 used"),
-            None => {}
+        if let Some(value) = saved.get(TRADE_XP) {
+            let Value::Int(x) = value else {
+                return None;
+            };
+            offers.xp = u32::try_from(*x).ok()?;
         }
-        offers
+        Some(offers)
     }
 
     #[cfg(test)]
@@ -1131,13 +1126,14 @@ pub(in crate::tick) mod tests {
         let mut back = Offers::from_nbt(
             &from_network_bytes(&wire),
             &crate::custom::Registry::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(back.list, offers.list, "the wire form holds every offer");
         back.allocate_net_ids(&mut 0);
         assert_eq!(network_bytes(&back.wire_nbt().unwrap()), wire);
 
         let saved = little_endian_bytes(&offers.to_nbt());
-        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
+        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default()).unwrap();
         assert_eq!(little_endian_bytes(&back.to_nbt()), saved);
         assert_eq!(back.list, offers.list);
         assert_eq!((back.tier, back.xp), (offers.tier, offers.xp));
@@ -1149,7 +1145,7 @@ pub(in crate::tick) mod tests {
         let mut offers = sample();
         offers.set_tier_xp([0, 5, 20, 40, 80]).unwrap();
         offers.apply(0, 16).unwrap();
-        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
+        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default()).unwrap();
         assert_eq!(back.list[0].uses, 16);
         assert_eq!(back.xp, 32);
         assert_eq!(back.tier, 2);
@@ -1180,7 +1176,7 @@ pub(in crate::tick) mod tests {
             RECIPES.to_owned(),
             Value::List(List::Compound(vec![wheat.clone(), book.clone()])),
         )]);
-        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
+        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default()).unwrap();
         assert!(offers.skipped.is_empty(), "no offer is skipped");
         let [w, b] = offers.list.as_slice() else {
             panic!("{offers:?}");
@@ -1240,16 +1236,10 @@ pub(in crate::tick) mod tests {
         ];
         let mut list = vec![good.clone()];
         list.extend(bad.iter().cloned());
-        let saved = Compound::from([
-            (RECIPES.to_owned(), Value::List(List::Compound(list))),
-            (TRADE_TIER.to_owned(), Value::Int(9)),
-            (TIER_XP.to_owned(), Value::Int(3)),
-        ]);
-        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
+        let saved = Compound::from([(RECIPES.to_owned(), Value::List(List::Compound(list)))]);
+        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default()).unwrap();
         assert_eq!(offers.list.len(), 1);
         assert_eq!(offers.skipped.len(), bad.len());
-        assert_eq!(offers.tier, 0, "a bad tier falls back to 0");
-        assert_eq!(offers.tier_xp, DEFAULT_TIER_XP);
         let written = offers.to_nbt();
         // Compared as bytes: one of them holds a NaN.
         let list = |l: &[Compound]| {
@@ -1267,6 +1257,33 @@ pub(in crate::tick) mod tests {
         let mut shown = offers.clone();
         shown.allocate_net_ids(&mut 0);
         assert_eq!(offer_compounds(&shown.wire_nbt().unwrap()).len(), 1);
+    }
+
+    /// A root value Anchor cannot use is not read at all, so the entity stays as saved and no
+    /// default overwrites it at the next save.
+    #[test]
+    fn unusable_saved_root_values_read_no_offers() {
+        let good = Compound::from([(
+            RECIPES.to_owned(),
+            Value::List(List::Compound(vec![sample().list[0].to_nbt(None)])),
+        )]);
+        let read = |key: &str, value: Value| {
+            let mut saved = good.clone();
+            saved.insert(key.to_owned(), value);
+            Offers::from_nbt(&saved, &crate::custom::Registry::default())
+        };
+        assert!(read(TRADE_TIER, Value::Int(1)).is_some());
+        for (key, value) in [
+            (RECIPES, Value::Int(1)),
+            (RECIPES, Value::List(List::Int(vec![1]))),
+            (TRADE_TIER, Value::Int(9)),
+            (TRADE_TIER, Value::Byte(1)),
+            (TRADE_XP, Value::Int(-1)),
+            (TRADE_XP, Value::Short(1)),
+            (TIER_XP, Value::Int(3)),
+        ] {
+            assert_eq!(read(key, value.clone()), None, "{key} {value:?}");
+        }
     }
 
     #[test]
