@@ -1175,6 +1175,39 @@ fn a_checkpoint_of_a_world_in_the_place_of_one_gone_restores() {
     assert!(pool.shutdown());
 }
 
+/// A player waiting for its saved data after the first world was deleted and a new world took its
+/// place waits in a world the server has, so a checkpoint of it restores.
+#[test]
+fn a_checkpoint_of_a_loading_player_restores_after_the_first_place_holds_a_new_world() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let lobby = context(&mut state)
+        .create_world("lobby", &Options::new())
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    let mut cx = context(&mut state);
+    cx.set_default_world(lobby).unwrap();
+    cx.unload_world(world::Id::DEFAULT).unwrap();
+    ticks(&mut state, &mut output, 2);
+    settle(&mut state, &mut output);
+    let first = state.worlds[world::Id::DEFAULT.index()].name().to_owned();
+    let mut cx = context(&mut state);
+    cx.delete_world(&first).unwrap();
+    let new = cx.create_world("arena", &arena(1)).unwrap();
+    assert_ne!(new, world::Id::DEFAULT);
+    assert_eq!(crate::save::list_index(new.index()), 0);
+    state.saving.players = true;
+    let (j, _joined) = join(2, 0);
+    tick(&mut state, &mut vec![j], &mut output);
+    assert_eq!(state.players[&SessionId::new(2)].phase, Phase::Loading);
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    assert!(checkpoint::tests::assert_round_trip(
+        &state,
+        fresh_like(&state),
+        &pool
+    ));
+    assert!(pool.shutdown());
+}
+
 /// `state` restored from its checkpoint into a state as a replay makes it.
 fn restored(state: &State, pool: &Pool) -> State {
     let bytes = state.checkpoint(pool).to_bytes();
@@ -1317,8 +1350,8 @@ fn open_server(
         opened.tick,
     );
     state.open_worlds(opened.catalog);
-    let (requests, queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (answers, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let (requests, queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+    let (answers, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
     let thread = opened.thread;
     let handle = crate::runtime::spawn_save(move || {
         let pool = crate::runtime::cpu_pool(1).unwrap();

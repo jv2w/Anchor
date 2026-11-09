@@ -97,7 +97,7 @@ pub(super) const PLAYER_LIST_COLOR: Rgba = Rgba {
 const RESPAWN_SEARCH_Y: f64 = 32_768.0;
 /// The official server rewinds 40 ticks of movement history for server-authoritative movement
 /// (P6).
-const REWIND_HISTORY_SIZE: i32 = 40;
+const REWIND_HISTORY_TICKS: i32 = 40;
 /// The dimension the official server's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
 /// The block collision shapes the official server sends in `VoxelShapes`:
@@ -419,8 +419,8 @@ impl super::Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`player::Error::Offline`], changing nothing, if the player is not in the game or its
-    /// client has not asked for a radius yet (the first answer opens the spawn window).
+    /// [`player::Error::Offline`] for a player who is not in the game or whose client has not
+    /// asked for a radius yet (the first answer opens the spawn window); nothing is changed.
     #[doc(alias = "Player::setViewDistance")]
     pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> player::Result<()> {
         let session = player.session();
@@ -1027,7 +1027,9 @@ fn enter(
         runtime_id,
         identity,
         key,
-        world: 0,
+        // Where a loading player waits: a world the server has, as every player's world is
+        // (the checkpoint's restore checks it); `place` moves it on.
+        world: state.catalog.default_world(),
         position: Vec3::ZERO,
         data_dirty: false,
         chunk_radius: None,
@@ -1554,7 +1556,7 @@ fn start_game(
         base_game_version: "*".to_owned(),
         world_name: settings.motd.clone(),
         player_movement_settings: PlayerMovementSettings {
-            rewind_history_size: REWIND_HISTORY_SIZE,
+            rewind_history_size: REWIND_HISTORY_TICKS,
             server_authoritative_block_breaking: true,
         },
         server_authoritative_inventory: true,
