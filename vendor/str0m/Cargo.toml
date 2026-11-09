@@ -95,6 +95,10 @@ name = "abs-capture-time"
 path = "tests/abs-capture-time.rs"
 
 [[test]]
+name = "anchor-unknown-stream"
+path = "tests/anchor-unknown-stream.rs"
+
+[[test]]
 name = "api-errors"
 path = "tests/api-errors.rs"
 
