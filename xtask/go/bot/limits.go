@@ -27,6 +27,9 @@ func playLimit(ctx context.Context, c config) *result {
 			res.reason = "dial: " + err.Error()
 			return res
 		}
+		// ReadPacket does not watch ctx: closing the connection at the time limit ends the wait.
+		stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+		defer stop()
 		defer conn.Close()
 		start := time.Now()
 		for {

@@ -544,14 +544,19 @@ func playTradeUp(g *game) error {
 	return nil
 }
 
-// tradeUntilTier summons a villager the bot can trade with and trades until its tier rises or the
-// inventory pays for no offer: whether an UpdateTrade came with the trade that raised the tier, nil
-// without a rise.
+// tradeUntilTier summons a villager the bot can trade with and trades with it as tradeUp does.
 func (g *game) tradeUntilTier(at protocol.BlockPos) (any, error) {
 	villager, o, err := g.trader(at, farmerSummon, true)
 	if err != nil {
 		return nil, err
 	}
+	return g.tradeUp(villager.EntityRuntimeID, o)
+}
+
+// tradeUp trades in the open trade window, starting with offer o, until the villager's tier rises or
+// the inventory pays for no offer: whether an UpdateTrade came with the trade that raised the tier, nil
+// without a rise. A failed trade is an error.
+func (g *game) tradeUp(villager uint64, o offer) (any, error) {
 	// Each trade takes the first offer the inventory still pays for at the starting tier, which holds
 	// until the tier rises and the loop ends.
 	offers, err := decodeOffers(g.trade.SerialisedOffers)
@@ -559,14 +564,14 @@ func (g *game) tradeUntilTier(at protocol.BlockPos) (any, error) {
 		return nil, err
 	}
 	unlocked := g.trade.TradeTier
-	tier := func() any { return g.verify.tiers[villager.EntityRuntimeID] }
+	tier := func() any { return g.verify.tiers[villager] }
 	startTier := tier()
 	var trades []any
 	defer func() { g.record("fact", map[string]any{"name": "trades", "value": trades}) }()
 	for i := 0; i < tradeUpLimit; i++ {
 		g.trade = nil
 		if err := g.takeOffer(o); err != nil {
-			return nil, nil
+			return nil, err
 		}
 		if err := g.settle(time.Second); err != nil {
 			return nil, err

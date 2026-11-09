@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"io"
 	"math"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/sandertv/gophertunnel/minecraft/nbt"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -102,6 +105,21 @@ func TestFirstOfferSkipsSecondPaymentsLockedOffersAndWhatTheBotLacks(t *testing.
 	}
 	if o.netID != 9 || o.buyCount != 2 || o.sellCount != 6 || o.sellID != 502 {
 		t.Fatalf("offer %+v, want netId 9", o)
+	}
+}
+
+func TestTradeUpReturnsAFailedTrade(t *testing.T) {
+	g := testGame()
+	g.s.out = &output{w: bufio.NewWriter(io.Discard)}
+	offers, err := nbt.MarshalEncoding(map[string]any{}, nbt.NetworkLittleEndian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.trade = &packet.UpdateTrade{SerialisedOffers: offers}
+	// The inventory holds no emerald, so the trade fails before it reaches the server.
+	rise, err := g.tradeUp(1, offer{buyName: "minecraft:emerald", buyCount: 1})
+	if err == nil {
+		t.Fatalf("a failed trade ended the trading without an error (rise %v)", rise)
 	}
 }
 

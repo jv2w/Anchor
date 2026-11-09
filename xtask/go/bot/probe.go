@@ -94,7 +94,7 @@ func probeRakNet(ctx context.Context, addr string) map[string]any {
 		return rec
 	}
 	// Reply 2: ID, magic, server GUID (8), client address (7 for IPv4), MTU (2), security (1).
-	if len(reply) < 25 {
+	if len(reply) < 26 {
 		rec["error"] = "short open connection reply 2"
 		return rec
 	}
