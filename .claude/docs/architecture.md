@@ -144,7 +144,7 @@ Phases:
 
 ## Public API structure
 
-- Accessors of one shape: `entity`/`entity_mut`, `world`/`world_mut`, `player`/`player_mut`, `worlds()` (in place order), `players()` (in `Id` order).
+- Accessors of one shape: `entity`/`entity_mut`, `world`/`world_mut`, `player`/`player_mut`, `worlds()` (in place order), `players()` (in `Id` order). A lookup by another key is `<thing>_by_<key>` and returns the ID (`player_by_name`, `world_by_name`, `entity_by_runtime_id`), so the context stays free for the `_mut` accessor.
 - `Player` and `Entity` are the tick-state structs themselves.
 - The message kinds (chat, tip, popup, title, action bar, toast, and the others of `player::Message`) are one call, `Player::send(Message)`. A raw packet is `Player::send_packet`.
 - Forms, scoreboards, boss bars, fake blocks, and menus are `Context` methods: their handlers take `&mut Context`, and their tables are in `State`.

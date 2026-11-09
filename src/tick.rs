@@ -52,6 +52,7 @@ pub use view::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::net::IpAddr;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
@@ -114,6 +115,12 @@ pub(crate) struct State {
     /// (players may share one); a player whose address is unknown has none. Derived from
     /// `players`.
     addresses: BTreeSet<(IpAddr, SessionId)>,
+    /// Each joined player's world and its session, and, while a teleport waits for the end of the
+    /// tick, the world it is seen in ([`Player::world`]) and its session, for the lookups of the
+    /// players in a world ([`Self::sessions_in`]), which keep those of one meaning. Derived from
+    /// `players`: a change of a player's world or teleport mark goes between
+    /// [`Self::unindex_worlds`] and [`Self::index_worlds`].
+    world_players: BTreeSet<(WorldIndex, SessionId)>,
     /// The user's event listeners, called only in [`step`].
     listeners: Listeners,
     /// The user's tasks and blocking jobs, called only in [`step`].
@@ -222,6 +229,7 @@ impl State {
             names: BTreeSet::new(),
             uuids: BTreeSet::new(),
             addresses: BTreeSet::new(),
+            world_players: BTreeSet::new(),
             listeners,
             tasks,
             data,
@@ -270,10 +278,10 @@ impl State {
     /// order of the map in memory (FNV-1a 64 over fields in a fixed order and width).
     ///
     /// Each field left out says why. The indexes are functions of the hashed sessions, runtime
-    /// IDs and identities ([`Self::index_matches_players`] checks this in tests). Each world's
-    /// light and light work are hashed by the world ([`World::light_hash`]). Task bodies are code:
-    /// when they run is hashed. Every field is named (no `..`), so a new field does not compile
-    /// until it is hashed or left out here.
+    /// IDs, identities and worlds ([`Self::index_matches_players`] checks this in tests). Each
+    /// world's light and light work are hashed by the world ([`World::light_hash`]). Task bodies
+    /// are code: when they run is hashed. Every field is named (no `..`), so a new field does not
+    /// compile until it is hashed or left out here.
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -293,6 +301,7 @@ impl State {
             names: _,
             uuids: _,
             addresses: _,
+            world_players: _,
             // Code, fixed at build.
             listeners: _,
             tasks,
@@ -507,8 +516,8 @@ impl State {
         h.0
     }
 
-    /// Whether the indexes hold exactly the key, name, UUID, address and session of every player,
-    /// and the chunks every view has.
+    /// Whether the indexes hold exactly the key, name, UUID, address, world and session of every
+    /// player, and the chunks every view has.
     #[cfg(test)]
     pub(crate) fn index_matches_players(&self) -> bool {
         let n = self.players.len();
@@ -523,6 +532,12 @@ impl State {
             && self.names.len() == n
             && self.uuids.len() == n
             && self.addresses.len() == addressed
+            && self.world_players
+                == self
+                    .players
+                    .iter()
+                    .flat_map(|(&s, p)| [(p.world, s), (p.world().index(), s)])
+                    .collect::<BTreeSet<_>>()
             && self.players.iter().all(|(&session, p)| {
                 p.key == PlayerKey::of(&p.identity)
                     && self.index.get(&p.key) == Some(&session)
@@ -562,6 +577,34 @@ impl State {
         chunk: crate::world::ChunkPos,
     ) -> impl Iterator<Item = SessionId> + Clone + '_ {
         self.chunks.viewers_of((world, chunk))
+    }
+
+    /// The sessions of the players in `world` or seen in it ([`Player::world`]), loading ones
+    /// too, in session order, each once: a lookup of [`Self::world_players`]. The caller keeps
+    /// those of the meaning it needs.
+    fn sessions_in(&self, world: WorldIndex) -> impl Iterator<Item = SessionId> + '_ {
+        self.world_players
+            .range(Self::world_range(world))
+            .map(|&(_, session)| session)
+    }
+
+    /// The keys of [`Self::world_players`] in `world`.
+    fn world_range(world: WorldIndex) -> RangeInclusive<(WorldIndex, SessionId)> {
+        (world, SessionId::new(0))..=(world, SessionId::new(u64::MAX))
+    }
+
+    /// Notes `player` in `world_players` ([`Self::world_players`]) under its world and the world
+    /// it is seen in, which differ only while a teleport waits for the end of the tick.
+    fn index_worlds(world_players: &mut BTreeSet<(WorldIndex, SessionId)>, player: &Player) {
+        world_players.insert((player.world, player.session));
+        world_players.insert((player.world().index(), player.session));
+    }
+
+    /// Takes `player` out of `world_players` ([`Self::world_players`]): the undoing of
+    /// [`Self::index_worlds`], before its world or teleport mark changes.
+    fn unindex_worlds(world_players: &mut BTreeSet<(WorldIndex, SessionId)>, player: &Player) {
+        world_players.remove(&(player.world, player.session));
+        world_players.remove(&(player.world().index(), player.session));
     }
 
     /// Closes the session of `player`, which [`Self::remove`] returned, with `packet` after the
@@ -643,6 +686,7 @@ impl State {
             self.addresses.insert((ip, session));
         }
         self.runtime_ids.insert(player.runtime_id, session);
+        Self::index_worlds(&mut self.world_players, &player);
         self.players.insert(session, player);
     }
 
@@ -689,6 +733,7 @@ impl State {
             self.addresses.remove(&(ip, session));
         }
         self.runtime_ids.remove(&player.runtime_id);
+        Self::unindex_worlds(&mut self.world_players, &player);
         spawn::left(self, &mut player);
         form::left(self, session);
         command::left(self, session);
@@ -704,6 +749,14 @@ impl State {
         view::close(self, &mut player);
         save::left(self, &player);
         Some(player)
+    }
+
+    /// Moves `player` (in the table, taken out of it while it changes, or about to be added)
+    /// into `world`, with its entries of [`Self::world_players`].
+    fn set_world(&mut self, player: &mut Player, world: WorldIndex) {
+        Self::unindex_worlds(&mut self.world_players, player);
+        player.world = world;
+        Self::index_worlds(&mut self.world_players, player);
     }
 }
 
@@ -1656,8 +1709,13 @@ fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
     output.requests.extend(task::offline_requests(state));
     let segments = log.take_discarded();
     let chunks = std::mem::take(&mut state.chunks.discarded);
-    if !segments.is_empty() || !chunks.is_empty() {
-        output.requests.push(Request::Discard { segments, chunks });
+    let players = std::mem::take(&mut state.saving.discarded);
+    if !segments.is_empty() || !chunks.is_empty() || !players.is_empty() {
+        output.requests.push(Request::Discard {
+            segments,
+            chunks,
+            players,
+        });
     }
     state.network.flush();
 }

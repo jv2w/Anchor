@@ -271,10 +271,10 @@ impl BanEntry {
         &self.name
     }
 
-    /// Why; empty if no reason was given.
+    /// Why, if a reason was given.
     #[doc(alias = "BanEntry::getReason")]
-    pub fn reason(&self) -> &str {
-        &self.reason
+    pub fn reason(&self) -> Option<&str> {
+        Some(self.reason.as_str()).filter(|reason| !reason.is_empty())
     }
 
     /// Who or what banned.
@@ -438,11 +438,12 @@ mod tests {
         assert_eq!(entry.name(), "steve");
         assert_eq!(
             (entry.reason(), entry.source(), entry.created()),
-            ("griefing", "console", 40)
+            (Some("griefing"), "console", 40)
         );
         assert_eq!(entry.expires(), Some(100));
         assert!(!entry.has_expired(99) && entry.has_expired(100));
         assert_eq!(BanEntry::new("x").source(), "(Unknown)");
+        assert_eq!(BanEntry::new("x").reason(), None);
         let ip = BanEntry::ip(IpAddr::from([10, 0, 0, 1]));
         assert_eq!(
             (ip.name(), ip.ip_address()),

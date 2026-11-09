@@ -33,7 +33,7 @@ use anchor::event::{BlockBreak, PlayerJoin, Priority};
 use anchor::form::{Modal, Response};
 use anchor::math::Vec3;
 use anchor::player::{self, Message, Player};
-use anchor::world::{BlockPos, Flat, Kind, World};
+use anchor::world::{BlockPos, Flat, Kind};
 use anchor::{Config, Context, Server};
 use tracing::debug;
 
@@ -85,7 +85,7 @@ struct Game {
 impl Game {
     /// One step of the game loop.
     fn second(&mut self, cx: &mut Context<'_>) {
-        let Some(arena) = cx.world_named(ARENA).map(World::id) else {
+        let Some(arena) = cx.world_by_name(ARENA) else {
             return;
         };
         let lobby: Vec<player::Id> = cx.players_in(cx.default_world().id()).collect();
@@ -215,9 +215,7 @@ fn on_join(event: &mut PlayerJoin, cx: &mut Context<'_>) {
 /// Blocks break only inside the arena area; the lobby and the rest of the arena stay as they
 /// are.
 fn protect_blocks(event: &mut BlockBreak, cx: &mut Context<'_>) {
-    let in_arena = cx
-        .world_named(ARENA)
-        .is_some_and(|w| w.id() == event.world());
+    let in_arena = cx.world_by_name(ARENA) == Some(event.world());
     let pos = event.pos();
     let inside = pos.x.abs_diff(ARENA_CENTRE.x) <= ARENA_RADIUS
         && pos.z.abs_diff(ARENA_CENTRE.z) <= ARENA_RADIUS;

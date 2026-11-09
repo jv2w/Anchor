@@ -247,12 +247,6 @@ getters!(PlayerDeath {
     /// translated message; so does one longer than [`player::MAX_TEXT_BYTES`] bytes.
     #[doc(alias = "PlayerDeathEvent::getDeathScreenMessage")]
     death_screen_message: &str,
-    /// Whether the player keeps the inventory.
-    #[doc(alias = "PlayerDeathEvent::getKeepInventory")]
-    keep_inventory: bool,
-    /// Whether the player keeps the XP.
-    #[doc(alias = "PlayerDeathEvent::getKeepXp")]
-    keep_xp: bool,
 });
 
 setters!(PlayerDeath {
@@ -274,6 +268,18 @@ setters!(PlayerDeath {
 });
 
 impl PlayerDeath {
+    /// Whether the player keeps the inventory.
+    #[doc(alias = "PlayerDeathEvent::getKeepInventory")]
+    pub fn keeps_inventory(&self) -> bool {
+        self.keep_inventory
+    }
+
+    /// Whether the player keeps the XP.
+    #[doc(alias = "PlayerDeathEvent::getKeepXp")]
+    pub fn keeps_xp(&self) -> bool {
+        self.keep_xp
+    }
+
     /// Replaces what the player drops. At most as many stacks as a player carries are kept, none
     /// of them empty, each cut to its item's stack size, and [`drops`](Self::drops) shows what is
     /// kept. A stack of the player's own that the event showed and these leave out is gone; every
@@ -477,7 +483,7 @@ impl PlayerEditBook {
     #[doc(alias = "PlayerEditBookEvent::setNewBook")]
     pub fn set_new_book(&mut self, book: Stack) {
         if book
-            .item()
+            .item_type()
             .and_then(crate::item::Type::kind)
             .is_some_and(|k| {
                 matches!(
@@ -859,7 +865,7 @@ cancellable! {
 pub struct PlayerItemHeld {
     pub(crate) player: player::Id,
     pub(crate) item: Stack,
-    pub(crate) slot: u8,
+    pub(crate) slot: usize,
     pub(crate) cancelled: bool,
 }
 
@@ -871,7 +877,7 @@ getters!(PlayerItemHeld {
     item: &Stack,
     /// The new hotbar slot, 0 to 8.
     #[doc(alias = "PlayerItemHeldEvent::getSlot")]
-    slot: u8,
+    slot: usize,
 });
 
 cancellable! {
@@ -1665,7 +1671,7 @@ getters!(PlayerWorldChange {
 });
 
 /// Raised when a player picks up XP orbs, before the points are added to the level and
-/// progress. Cancelling keeps both. The reset on death ([`PlayerDeath::keep_xp`] decides it) and
+/// progress. Cancelling keeps both. The reset on death ([`PlayerDeath::keeps_xp`] decides it) and
 /// the points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
 #[doc(alias = "PlayerExperienceChangeEvent")]
 #[derive(Debug)]
@@ -1728,10 +1734,10 @@ mod tests {
     use crate::block::DIRT;
     use crate::event::fixtures::{POS, entity, player, sticks};
 
-    /// The world of the events.
-    const WORLD: world::Id = world::Id::DEFAULT;
     /// A position and vector the events carry.
     const AT: Vec3 = Vec3::new(0.5, 65.0, -1.5);
+    /// The world of the events.
+    const WORLD: world::Id = world::Id::DEFAULT;
 
     /// An identity named `name`, without an XUID or an address.
     fn identity(name: &str) -> Identity {
@@ -1881,7 +1887,7 @@ mod tests {
             (e.death_message(), e.death_screen_message()),
             ("Steve died", "Steve died")
         );
-        assert!(!e.keep_inventory() && !e.keep_xp());
+        assert!(!e.keeps_inventory() && !e.keeps_xp());
         e.set_drops(Vec::new());
         e.set_xp_drop_amount(0);
         e.set_death_message(String::new());
@@ -1893,7 +1899,7 @@ mod tests {
             (e.death_message(), e.death_screen_message()),
             ("", "You fell")
         );
-        assert!(e.keep_inventory() && e.keep_xp());
+        assert!(e.keeps_inventory() && e.keeps_xp());
     }
 
     // api: PlayerDropItemEvent, PlayerDropItemEvent::getItem, PlayerDropItemEvent::cancel,

@@ -39,8 +39,8 @@ impl Player {
 
     /// The selected hotbar slot, 0 to 8.
     #[doc(alias = "PlayerInventory::getHeldItemIndex")]
-    pub fn held_slot(&self) -> u8 {
-        self.inventory.held
+    pub fn held_slot(&self) -> usize {
+        usize::from(self.inventory.held)
     }
 
     /// One of the player's inventories, to read.
@@ -87,10 +87,10 @@ impl Player {
     ///
     /// [`Error::NoSlot`] for another slot, changing nothing.
     #[doc(alias = "PlayerInventory::setHeldItemIndex")]
-    pub fn set_held_slot(&mut self, slot: u8) -> Result<()> {
-        if slot >= HOTBAR {
+    pub fn set_held_slot(&mut self, slot: usize) -> Result<()> {
+        let Some(slot) = u8::try_from(slot).ok().filter(|s| *s < HOTBAR) else {
             return Err(Error::NoSlot);
-        }
+        };
         if slot != self.inventory.held {
             select(self, slot);
         }
@@ -217,7 +217,7 @@ impl Context<'_> {
     /// # Errors
     ///
     /// Changes nothing with:
-    /// [`Error::NoPlayer`] for a player who has left.
+    /// [`Error::Offline`] for a player who has left.
     /// [`Error::NoCreativeInventory`] for a name no alternative has.
     #[doc(alias = "Player::setCreativeInventory")]
     pub fn set_creative_inventory(
@@ -229,7 +229,7 @@ impl Context<'_> {
             return Err(Error::NoCreativeInventory);
         };
         let Some(p) = self.state.players.get_mut(&player.session()) else {
-            return Err(Error::NoPlayer);
+            return Err(Error::Offline);
         };
         if p.inventory.creative != index {
             p.inventory.creative = index;

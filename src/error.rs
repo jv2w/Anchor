@@ -94,7 +94,7 @@ pub enum Error {
         name: String,
     },
     /// The spawn the generator of a new world gives is where a player would stand outside the
-    /// world border ([`world::Error::OutOfRange`](crate::world::Error::OutOfRange)).
+    /// world border ([`world::Error::OutsideWorld`](crate::world::Error::OutsideWorld)).
     GeneratorSpawn {
         /// The world's name.
         name: String,

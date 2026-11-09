@@ -1272,7 +1272,7 @@ fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
     assert!(game.survival_mut(1).food > 10.0);
     let player = game.player(1);
     assert_eq!(
-        player.inventory.held().item(),
+        player.inventory.held().item_type(),
         Some(ItemKind::Bowl.default_type())
     );
     // The listener's 200 apples are one stack of at most 64.

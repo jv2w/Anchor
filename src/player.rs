@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use crate::protocol::consts::{self, TextType, TitleAction};
 use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
-use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
+use crate::protocol::{MAX_TEXT_MESSAGE, MAX_TEXT_PARAMETERS, MAX_TEXT_SOURCE_NAME};
 use crate::tick::TICK;
 use crate::tick::queue::SessionId;
 
@@ -23,14 +23,14 @@ pub const HEIGHT: f64 = 1.8;
 /// The highest xp level.
 pub(crate) const MAX_LEVEL: u32 = 24_791;
 /// The most parameters of a translated message a client decodes.
-const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
+const MAX_PARAMS: usize = MAX_TEXT_PARAMETERS;
 /// The largest xp progress: just below a full bar, which is the next level.
 pub(crate) const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
 /// The longest chat source name a client decodes, in bytes.
-const MAX_SOURCE_BYTES: usize = TEXT_SOURCE_NAME_MAX_LEN;
+const MAX_SOURCE_BYTES: usize = MAX_TEXT_SOURCE_NAME;
 /// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
 /// most a message, a command's output and the other texts the API sends take.
-pub const MAX_TEXT_BYTES: usize = TEXT_MESSAGE_MAX_LEN;
+pub const MAX_TEXT_BYTES: usize = MAX_TEXT_MESSAGE;
 /// The width and depth of a standing player's box in blocks; a human NPC's
 /// too.
 pub const WIDTH: f64 = 0.6;
@@ -79,7 +79,7 @@ pub enum Error {
     /// world name is longer than a world's: 250 bytes.
     TooLong,
     /// A translated message has more than 4 parameters, the most a client accepts.
-    TooManyParameters,
+    TooManyParams,
     /// A number is not finite or outside the range the setter documents.
     OutOfRange,
     /// A position is not finite or lies outside the world border.
@@ -114,7 +114,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooLong => f.write_str("the text is too long"),
-            Self::TooManyParameters => f.write_str("a translation takes at most 4 parameters"),
+            Self::TooManyParams => f.write_str("a translation takes at most 4 parameters"),
             Self::OutOfRange => f.write_str("the value is out of range"),
             Self::OutsideWorld => f.write_str("the position is outside the world"),
             Self::WorldNotLoaded => f.write_str("the world is not loaded"),
@@ -155,12 +155,12 @@ pub enum Message {
         /// What is said.
         text: String,
     },
-    /// A chat line the client translates: `key` with up to 4 `parameters`.
+    /// A chat line the client translates: `key` with up to 4 `params`.
     Translation {
         /// The translation key.
         key: String,
         /// The values of the key's placeholders, in order.
-        parameters: Vec<String>,
+        params: Vec<String>,
     },
     /// A line above the hotbar.
     Popup(String),
@@ -171,7 +171,7 @@ pub enum Message {
         /// The translation key.
         key: String,
         /// The values of the key's placeholders, in order.
-        parameters: Vec<String>,
+        params: Vec<String>,
     },
     /// A chat line marked as a system message.
     System(String),
@@ -233,15 +233,15 @@ impl Message {
             }
             Ok(text_packet(kind, source, message, Vec::new()))
         };
-        let translated = |kind: TextType, key: String, parameters: Vec<String>| {
+        let translated = |kind: TextType, key: String, params: Vec<String>| {
             check_text(&key)?;
-            if parameters.len() > MAX_PARAMETERS {
-                return Err(Error::TooManyParameters);
+            if params.len() > MAX_PARAMS {
+                return Err(Error::TooManyParams);
             }
-            for p in &parameters {
+            for p in &params {
                 check_text(p)?;
             }
-            let mut packet = text_packet(kind, String::new(), key, parameters);
+            let mut packet = text_packet(kind, String::new(), key, params);
             if let Packet::Text(t) = &mut packet {
                 t.needs_translation = true;
             }
@@ -251,13 +251,13 @@ impl Message {
         match self {
             Self::Raw(m) => one(text(TextType::Raw, m)),
             Self::Chat { source, text } => one(spoken(TextType::Chat, source, text)),
-            Self::Translation { key, parameters } => {
-                one(translated(TextType::Translation, key, parameters))
+            Self::Translation { key, params } => {
+                one(translated(TextType::Translation, key, params))
             }
             Self::Popup(m) => one(text(TextType::Popup, m)),
             Self::Tip(m) => one(text(TextType::Tip, m)),
-            Self::JukeboxPopup { key, parameters } => {
-                one(translated(TextType::JukeboxPopup, key, parameters))
+            Self::JukeboxPopup { key, params } => {
+                one(translated(TextType::JukeboxPopup, key, params))
             }
             Self::System(m) => one(text(TextType::System, m)),
             Self::Whisper { source, text } => one(spoken(TextType::Whisper, source, text)),
@@ -458,7 +458,7 @@ pub(crate) fn check_text(text: &str) -> Result<()> {
 }
 
 /// A `Text` packet. An empty message becomes a space: clients fail on an empty one.
-fn text_packet(kind: TextType, source: String, message: String, parameters: Vec<String>) -> Packet {
+fn text_packet(kind: TextType, source: String, message: String, params: Vec<String>) -> Packet {
     let message = if message.is_empty() {
         " ".to_owned()
     } else {
@@ -468,7 +468,7 @@ fn text_packet(kind: TextType, source: String, message: String, parameters: Vec<
         text_type: kind.into(),
         source_name: source,
         message,
-        parameters,
+        parameters: params,
         ..Text::default()
     }))
 }
@@ -542,7 +542,7 @@ mod tests {
             (
                 Message::Translation {
                     key: "chat.type.text".to_owned(),
-                    parameters: vec!["a".to_owned(), "b".to_owned()],
+                    params: vec!["a".to_owned(), "b".to_owned()],
                 },
                 2,
                 true,
@@ -550,7 +550,7 @@ mod tests {
             (
                 Message::JukeboxPopup {
                     key: "record.nowPlaying".to_owned(),
-                    parameters: vec!["x".to_owned()],
+                    params: vec!["x".to_owned()],
                 },
                 4,
                 true,
@@ -629,10 +629,10 @@ mod tests {
         assert_eq!(
             Message::Translation {
                 key: "k".to_owned(),
-                parameters: vec![String::new(); 5]
+                params: vec![String::new(); 5]
             }
             .into_packets(),
-            Err(Error::TooManyParameters)
+            Err(Error::TooManyParams)
         );
         assert_eq!(
             Message::Title {

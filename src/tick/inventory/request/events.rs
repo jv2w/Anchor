@@ -173,9 +173,9 @@ fn change(
     let (inventory, slot) = place(r, window)?;
     Some(SlotChange {
         inventory,
-        slot,
-        before: before.clone(),
-        after: after.clone(),
+        slot: usize::from(slot),
+        old_item: before.clone(),
+        new_item: after.clone(),
     })
 }
 

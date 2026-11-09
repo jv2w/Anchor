@@ -71,7 +71,7 @@ fn on_ground(h: &Harness, item: item::Kind) -> u64 {
         .iter()
         .filter(|e| !e.flagged)
         .filter_map(|e| match &e.kind {
-            Kind::Item(i) if i.stack.item().and_then(item::Type::kind) == Some(item) => {
+            Kind::Item(i) if i.stack.item_type().and_then(item::Type::kind) == Some(item) => {
                 Some(u64::from(i.stack.count()))
             }
             _ => None,
@@ -451,7 +451,7 @@ fn use_data(h: &Harness, action: UseItemAction) -> UseItemTransactionData {
         ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
-        held.item().map_or(0, |t| i32::from(t.runtime_id()));
+        held.item_type().map_or(0, |t| i32::from(t.runtime_id()));
     data.held_item.stack.count = u16::from(held.count());
     data
 }
@@ -609,7 +609,7 @@ fn carried(h: &Harness, item: item::Kind) -> u64 {
     let inv = &h.state.players[&session(1)].inventory;
     (0..=u8::MAX)
         .map_while(|i| inv.main_stack(i))
-        .filter(|s| s.item().and_then(item::Type::kind) == Some(item))
+        .filter(|s| s.item_type().and_then(item::Type::kind) == Some(item))
         .map(|s| u64::from(s.count()))
         .sum()
 }
@@ -937,7 +937,12 @@ fn a_tridents_launch_and_pickup_ask_their_listeners() {
             let trident = cx
                 .entity(e.origin())
                 .is_some_and(|o| o.entity_type() == crate::entity::Type::Trident);
-            assert!(trident && e.item().item().is_some_and(|t| t.is(item::Class::Trident)));
+            assert!(
+                trident
+                    && e.item()
+                        .item_type()
+                        .is_some_and(|t| t.is(item::Class::Trident))
+            );
             if CANCEL_PICKUP.with(Cell::get) {
                 e.cancel();
             }

@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ir::{Enum, Field, Function, Ir, Stmt, Type, TypeDef, Union};
+use super::ir::{Enum, Expr, Field, Function, Ir, Stmt, Type, TypeDef, Union};
 use super::names;
 
 /// Union variants and packets larger than this many bytes (estimated) are boxed, so the enums
@@ -174,10 +174,26 @@ const IO_NON_STATEMENTS: &[&str] = &["ShieldID", "InvalidValue", "UnknownEnumOpt
 /// IO methods that no `Marshal` calls, so they have no Rust form; a call fails generation.
 const IO_UNUSED: &[&str] = &["NBTList"];
 
+/// Struct fields (`<Go type>.<field>`) that gophertunnel reads and writes as raw `Bytes` but that
+/// hold one network little-endian NBT root: generated as `nbt::Compound`, so the tick hands the
+/// compound over and the packet's encoding, off the tick, writes it.
+const NBT_FIELDS: &[&str] = &["packet.UpdateTrade.SerialisedOffers"];
+
+/// The IR argument of the network little-endian NBT encoding.
+const NBT_NETWORK_ARG: &str = r#"{"kind": "external", "name": "nbt.NetworkLittleEndian", "type": {"kind": "external", "name": "nbt.networkLittleEndian"}}"#;
+
+/// The IR type of an NBT compound (`map[string]any`).
+const NBT_TYPE: &str =
+    r#"{"kind": "map", "key": {"kind": "basic", "name": "string"}, "elem": {"kind": "any"}}"#;
+
 /// Struct fields (`<Go type>.<field>`) held as `Arc<T>`: the server sends one value of them
-/// to many players (a skin of up to 4 MiB in the player list and skin broadcasts), so every
-/// packet shares it instead of copying it.
-const SHARED_FIELDS: &[&str] = &["protocol.PlayerListEntry.Skin", "packet.PlayerSkin.Skin"];
+/// to many players (a skin of up to 4 MiB in the player list and skin broadcasts, a villager's
+/// offers of up to 2 MiB to every trader), so every packet shares it instead of copying it.
+const SHARED_FIELDS: &[&str] = &[
+    "protocol.PlayerListEntry.Skin",
+    "packet.PlayerSkin.Skin",
+    "packet.UpdateTrade.SerialisedOffers",
+];
 
 /// How a writer takes an IO method's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,8 +313,11 @@ impl<'a> Model<'a> {
                 .and_then(|d| d.fields.iter().find(|f| f.name == field))
                 .map(|f| &f.ty)
                 .ok_or_else(|| format!("SHARED_FIELDS lists {key}, which the IR does not have"))?;
-            if ty.kind != "named" || !model.has_codec(&ty.name) {
-                return Err(format!("shared field {key} is not a type with a Codec"));
+            let codec = ty.kind == "named" && model.has_codec(&ty.name);
+            if !codec && !NBT_FIELDS.contains(key) {
+                return Err(format!(
+                    "shared field {key} is neither a type with a Codec nor an NBT field"
+                ));
             }
         }
         for t in &ir.types {
@@ -711,4 +730,53 @@ pub(super) fn module_of(go: &str) -> Module {
 /// The package of a qualified Go name.
 fn package(name: &str) -> &str {
     name.split_once('.').map_or("", |(p, _)| p)
+}
+
+/// Rewrites each field of [`NBT_FIELDS`] in `ir` from a byte slice read and written by one
+/// top-level `Bytes` statement of its type's `Marshal` to a network little-endian `NBT` compound.
+/// Fails when the IR no longer has that shape.
+pub(super) fn retype_nbt_fields(ir: &mut Ir) -> Result<(), String> {
+    let compound: Type = serde_json::from_str(NBT_TYPE).map_err(|e| format!("NBT_TYPE: {e}"))?;
+    let network: Expr =
+        serde_json::from_str(NBT_NETWORK_ARG).map_err(|e| format!("NBT_NETWORK_ARG: {e}"))?;
+    for key in NBT_FIELDS {
+        let (go, field) = key.rsplit_once('.').ok_or("NBT field without a type")?;
+        let def = ir
+            .types
+            .iter_mut()
+            .find(|t| t.name == go && t.kind == "struct")
+            .ok_or_else(|| format!("NBT_FIELDS lists {key}, whose type the IR does not have"))?;
+        let f = def
+            .fields
+            .iter_mut()
+            .find(|f| f.name == field)
+            .ok_or_else(|| format!("NBT_FIELDS lists {key}, which the IR does not have"))?;
+        let is_bytes = f.ty.kind == "slice"
+            && f.ty
+                .elem
+                .as_deref()
+                .is_some_and(|e| e.kind == "basic" && e.name == "uint8");
+        if !is_bytes {
+            return Err(format!("NBT field {key} is not a byte slice"));
+        }
+        f.ty = compound.clone();
+        let stmt = def
+            .marshal
+            .iter_mut()
+            .flat_map(|b| b.stmts.iter_mut())
+            .find(|s| {
+                s.kind == "io"
+                    && s.method == "Bytes"
+                    && s.place
+                        .as_ref()
+                        .is_some_and(|p| p.kind == "field" && p.name == field)
+            })
+            .ok_or_else(|| format!("NBT field {key} has no top-level Bytes statement"))?;
+        "NBT".clone_into(&mut stmt.method);
+        if let Some(place) = &mut stmt.place {
+            place.ty = Some(compound.clone());
+        }
+        stmt.args = vec![network.clone()];
+    }
+    Ok(())
 }

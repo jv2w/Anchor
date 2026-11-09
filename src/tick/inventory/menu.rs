@@ -99,7 +99,7 @@ pub(in crate::tick) struct Open {
 }
 
 impl Open {
-    /// Feeds the menu into the state hash of a test.
+    /// Hashes the menu (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {

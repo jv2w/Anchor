@@ -57,7 +57,7 @@ use crate::world::{BlockPos, Particle, Sound};
 const BREAK_EXHAUSTION: f64 = 0.005;
 /// The inventory slot of the world in a drop action: the Q key's drop.
 const DROP_SLOT: u32 = 0;
-/// The random stream purpose of drops.
+/// The random stream of drops.
 const DROPS: u64 = random::tag("interact-drops");
 /// Ticks between punch particles while breaking.
 const FX_INTERVAL: u32 = 5;
@@ -82,7 +82,7 @@ const REACH_SURVIVAL: f64 = 7.0;
 /// An identical click within this many ticks is the client repeating itself; it is ignored, so a
 /// doubled packet places once.
 const REPEAT_TICKS: u64 = 2;
-/// The random stream purpose of tool wear.
+/// The random stream of tool wear.
 const USE: u64 = random::tag("interact-use");
 
 /// A player's interaction state: the block being broken, the last click and the sign the player
@@ -106,6 +106,7 @@ pub(super) struct Breaking {
 }
 
 impl Breaking {
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -530,7 +531,7 @@ fn legacy_drop(state: &mut State, session: SessionId, actions: &[InventoryAction
 /// stack (the type of [`Stack::to_network`], read without building its NBT).
 fn network_item_type(stack: &Stack) -> ItemType {
     ItemType {
-        network_id: stack.item().map_or(0, |t| i32::from(t.runtime_id())),
+        network_id: stack.item_type().map_or(0, |t| i32::from(t.runtime_id())),
         metadata_value: u32::from(stack.meta()),
     }
 }
@@ -1290,7 +1291,7 @@ fn player_may_break(actor: &Actor, tool: &Stack, name: &str, info: block::BreakI
         && (actor.mode != GameMode::Adventure || adventure_allows(tool, "CanDestroy", name))
         && (actor.mode != GameMode::Creative
             || tool
-                .item()
+                .item_type()
                 .and_then(crate::item::Type::custom_item)
                 .is_none_or(crate::custom::Item::can_break_in_creative))
 }
@@ -1348,7 +1349,7 @@ fn tool_after_break(
     length: BreakLength,
     rng: &mut Random,
 ) -> Stack {
-    let Some(item) = tool.item() else {
+    let Some(item) = tool.item_type() else {
         return tool.clone();
     };
     let digging = item.is(item::Class::Pickaxe)
@@ -1401,9 +1402,14 @@ fn return_items(state: &mut State, session: SessionId, old: &Stack, new: Stack) 
     // A tool worn out.
     let mut worn_out = false;
     if !new.same(old) && holds_old {
-        let deducted = new.is_empty() || (new.item() == old.item() && new.extra() == old.extra());
+        let deducted =
+            new.is_empty() || (new.item_type() == old.item_type() && new.extra() == old.extra());
         if !deducted || finite {
-            worn_out = new.is_empty() && old.item().and_then(item::Type::max_durability).is_some();
+            worn_out = new.is_empty()
+                && old
+                    .item_type()
+                    .and_then(item::Type::max_durability)
+                    .is_some();
             if let Some(player) = state.players.get_mut(&session) {
                 inventory::set_held(player, new);
             }
@@ -1473,7 +1479,7 @@ fn plan_destruction(
         }
         if let block::ItemForm::Item(own) = s.item() {
             for item in &mut items {
-                if item.item() == Some(own) {
+                if item.item_type() == Some(own) {
                     *item = block_entity::with_block_data(state, world, *p, item.clone());
                 }
             }

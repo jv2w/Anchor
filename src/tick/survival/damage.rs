@@ -38,7 +38,7 @@ use crate::tick::{
 };
 use crate::world::{self, BlockPos, Sound};
 
-/// The random stream (`crate::random`) of armor wear.
+/// The random stream of armor wear.
 const ARMOR_WEAR: u64 = random::tag("armor-wear");
 /// The exhaustion a hit adds to the player it hurts.
 const DAMAGE_EXHAUSTION: f64 = 0.1;
@@ -56,15 +56,15 @@ const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
 const MAX_EPF: u32 = 25;
 /// No modifier applies.
 const NO_MODIFIERS: Modifiers = [None; DamageModifier::all().len()];
-/// The random stream (`crate::random`) of protection rolls.
+/// The random stream of protection rolls.
 const PROTECTION: u64 = random::tag("protection");
 /// Ticks a respawned player ignores damage.
 const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
-/// The random stream (`crate::random`) of respiration rolls.
+/// The random stream of respiration rolls.
 const RESPIRATION: u64 = random::tag("respiration");
-/// The random stream (`crate::random`) of thorns rolls.
+/// The random stream of thorns rolls.
 const THORNS: u64 = random::tag("thorns");
-/// The random stream (`crate::random`) of tool wear.
+/// The random stream of tool wear.
 const TOOL_WEAR: u64 = random::tag("tool-wear");
 
 /// Why a player takes damage.
@@ -646,7 +646,7 @@ fn finish(
             .inventory
             .armor()
             .first()
-            .is_some_and(|h| h.item().and_then(Type::armor).is_some())
+            .is_some_and(|h| h.item_type().and_then(Type::armor).is_some())
     };
     if s.switches.armor && cause == Damage::FallingBlock && helmet() {
         let d = total(base, sum) / 4.0;
@@ -847,7 +847,7 @@ pub(super) fn armor_points(player: &Player) -> u32 {
         .inventory
         .armor()
         .iter()
-        .filter_map(Stack::item)
+        .filter_map(Stack::item_type)
         .map(|i| u32::from(i.armor_points()))
         .sum()
 }
@@ -867,7 +867,7 @@ fn protection_factor(player: &Player, cause: Damage) -> u32 {
     };
     let mut total: u32 = 0;
     for stack in player.inventory.armor() {
-        if stack.item().and_then(Type::armor).is_none() {
+        if stack.item_type().and_then(Type::armor).is_none() {
             continue;
         }
         let Some(extra) = stack.extra() else {
@@ -944,7 +944,7 @@ fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
 
 /// Whether a stack is a totem of undying.
 fn is_totem(stack: &Stack) -> bool {
-    stack.item().is_some_and(|i| i.is(Class::Totem))
+    stack.item_type().is_some_and(|i| i.is(Class::Totem))
 }
 
 /// Wears the armor after a hit: ⌊damage / 4⌋ points, at least 1.
@@ -969,7 +969,7 @@ fn damage_armor(state: &mut State, session: SessionId, base: f64) {
         let Some(stack) = player.inventory.armor().get(slot) else {
             continue;
         };
-        if stack.item().and_then(Type::armor).is_none() {
+        if stack.item_type().and_then(Type::armor).is_none() {
             continue;
         }
         if let Some(worn) = wear(&state.settings, stack, points, &mut r) {
@@ -1001,7 +1001,7 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
         let Some(stack) = player.inventory.armor().get(slot) else {
             continue;
         };
-        if stack.item().and_then(Type::armor).is_none() {
+        if stack.item_type().and_then(Type::armor).is_none() {
             continue;
         }
         let level = u32::from(drops::level(stack, Enchantment::Thorns));
@@ -1228,7 +1228,7 @@ fn melee_parts(
     a: &Player,
 ) -> (f64, f64, Modifiers, bool, bool) {
     let held = a.inventory.held();
-    let base = f64::from(held.item().map_or(1, Type::attack_points));
+    let base = f64::from(held.item_type().map_or(1, Type::attack_points));
     let (mut extra, mut parts) =
         attacker_modifiers(state, attacker, base, Damage::Attack(attacker));
     let sharpness = drops::level(held, Enchantment::Sharpness);
@@ -1324,7 +1324,7 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
     if !super::has_finite_resources(player.survival.mode()) || player.inventory.held() != held {
         return;
     }
-    let Some(item) = held.item() else {
+    let Some(item) = held.item_type() else {
         return;
     };
     let amount = if item.is(Class::Sword) || item.is(Class::Hoe) || item.is(Class::Trident) {
@@ -1482,7 +1482,7 @@ fn broadcast_death_message(
     let line = if state.settings.show_death_messages && chat == message {
         player::Message::Translation {
             key: chat,
-            parameters: death_names(state, session, attacker),
+            params: death_names(state, session, attacker),
         }
     } else {
         player::Message::Raw(chat)
@@ -1790,9 +1790,10 @@ pub(in crate::tick) fn respawn_joined(state: &mut State, session: SessionId) {
         return;
     };
     // Its view opens once its client asks for a radius, after the start-game packets.
-    if let Some(player) = state.players.get_mut(&session) {
-        player.world = world;
+    if let Some(mut player) = state.players.remove(&session) {
+        state.set_world(&mut player, world);
         player.position = position;
+        state.players.insert(session, player);
     }
     if restore(state, session) {
         extinguished(state, session, ExtinguishCause::Respawn);

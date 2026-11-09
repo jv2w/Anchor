@@ -209,7 +209,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     assert_eq!(h.health(guide), 20.0, "spawned NPCs are invulnerable");
     h.make_vulnerable(guide);
     let sword = stack("minecraft:diamond_sword", 1);
-    let points = f64::from(sword.item().unwrap().attack_points());
+    let points = f64::from(sword.item_type().unwrap().attack_points());
     hold(&mut h, sword);
     h.take(1);
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
@@ -339,7 +339,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
     let sword = stack("minecraft:diamond_sword", 1)
         .with_extra(Some(extra))
         .unwrap();
-    let points = f64::from(sword.item().unwrap().attack_points());
+    let points = f64::from(sword.item_type().unwrap().attack_points());
     hold(&mut h, sword);
     h.state
         .players
@@ -466,7 +466,7 @@ fn loot(h: &Harness) -> (u32, u32, u32) {
         match &e.kind {
             Kind::Item(i) => {
                 let count = u32::from(i.stack.count());
-                match i.stack.item().and_then(crate::item::Type::kind) {
+                match i.stack.item_type().and_then(crate::item::Type::kind) {
                     Some(crate::item::Kind::RottenFlesh) => flesh += count,
                     Some(
                         crate::item::Kind::IronIngot
@@ -891,7 +891,7 @@ fn an_npc_hurt_by_lightning_shows_the_lightning_cause() {
     h.entities();
     let runtime_id = e_runtime(&h, target);
     h.take(1);
-    let bolt = crate::world::Lightning { damage: true };
+    let bolt = crate::world::Lightning::new().harmful();
     assert!(crate::tick::entity::strike_lightning(
         &mut h.state,
         0,
@@ -922,7 +922,7 @@ fn lightning_sets_no_block_on_fire() {
     let planks = named("minecraft:oak_planks");
     let below = BlockPos::new(3, -61, 0);
     h.state.worlds[0].set_block(below, planks).unwrap();
-    let bolt = crate::world::Lightning { damage: true };
+    let bolt = crate::world::Lightning::new().harmful();
     assert!(crate::tick::entity::strike_lightning(
         &mut h.state,
         0,

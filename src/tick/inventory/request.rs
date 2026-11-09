@@ -138,7 +138,7 @@ impl<'a> Exec<'a> {
     /// Whether slot `r` takes `stack`: armor only in its slot (a carved pumpkin or a mob head on
     /// the head), only what [`Stack::can_enter_shulker_box`] in a shulker box.
     fn accepts(&self, r: SlotRef, stack: &Stack) -> Result<()> {
-        let Some(item) = stack.item() else {
+        let Some(item) = stack.item_type() else {
             return Ok(());
         };
         let ok = match r {
@@ -387,7 +387,10 @@ impl<'a> Exec<'a> {
         self.accepts(r, &moved)?;
         let there = self.slot(r)?;
         let total = u16::from(there.stack.count()) + u16::from(count);
-        if total > u16::from(moved.max_stack_size()) {
+        if moved
+            .max_stack_size()
+            .is_none_or(|max| total > u16::from(max))
+        {
             return Err(Error::NoRoom);
         }
         let total = u8::try_from(total).map_err(|_| Error::NoRoom)?;
@@ -466,7 +469,7 @@ impl<'a> Exec<'a> {
     /// Takes `count` created items; a stack holds at most its maximum.
     fn take_created(&mut self, count: u8) -> Result<Stack> {
         let created = self.created.as_mut().ok_or(Error::NothingCreated)?;
-        if count == 0 || count > created.stack.max_stack_size() {
+        if count == 0 || created.stack.max_stack_size().is_none_or(|max| count > max) {
             return Err(Error::Count);
         }
         if !created.creative && u32::from(count) > created.total - created.taken {
@@ -1067,7 +1070,7 @@ fn response(
             }
             r => inv.get(r).unwrap_or_default(),
         };
-        let durability = match current.stack.item() {
+        let durability = match current.stack.item_type() {
             Some(t) if t.max_durability().is_some() => i32::from(current.stack.damage()),
             _ => 0,
         };

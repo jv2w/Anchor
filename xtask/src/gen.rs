@@ -58,8 +58,9 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     let extracted = dir.join("protocol.json");
     extract(root, &extracted)?;
     let ir_bytes = read(&extracted)?;
-    let ir: ir::Ir =
+    let mut ir: ir::Ir =
         serde_json::from_slice(&ir_bytes).map_err(|e| format!("{}: {e}", extracted.display()))?;
+    model::retype_nbt_fields(&mut ir)?;
     let limits = data::read_json(root, REFERENCE_DIR, limits::FILE)?;
     let model = model::Model::new(&ir, limits)?;
     let output = emit::generate(&model)?;

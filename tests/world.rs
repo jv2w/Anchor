@@ -28,6 +28,7 @@ fn block_positions_round_down_to_their_chunk() {
 fn errors_are_lowercase_and_shareable() {
     fn shareable<E: std::error::Error + Send + Sync + 'static>(_: &E) {}
     for e in [
+        Error::OutsideWorld,
         Error::OutOfRange,
         Error::NotLoaded,
         Error::Quarantined,
@@ -79,12 +80,15 @@ fn a_generator_fills_an_empty_chunk() {
     assert_eq!(chunk.block(0, 1, 0).map(State::name), Some("minecraft:air"));
     assert_eq!(chunk.biome(15, 0, 15), Some(2));
     assert_eq!(chunk.biome(15, 16, 15), Some(1), "plains elsewhere");
-    assert_eq!(chunk.set_block(16, 0, 0, stone), Err(Error::OutOfRange));
+    assert_eq!(chunk.set_block(16, 0, 0, stone), Err(Error::OutsideWorld));
     assert_eq!(
         chunk.set_block(0, MAX_Y + 1, 0, stone),
-        Err(Error::OutOfRange)
+        Err(Error::OutsideWorld)
     );
-    assert_eq!(chunk.set_biome(0, MIN_Y - 1, 0, 1), Err(Error::OutOfRange));
+    assert_eq!(
+        chunk.set_biome(0, MIN_Y - 1, 0, 1),
+        Err(Error::OutsideWorld)
+    );
     assert_eq!(chunk.block(0, 0, 16), None);
     let mut flat = Chunk::default();
     Flat.generate(0, ChunkPos::new(0, 0), &mut flat);

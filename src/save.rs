@@ -84,10 +84,12 @@ pub(crate) enum Request {
     /// A snapshot to commit.
     Commit(Box<Snapshot>),
     /// What the tick let go of, which the save thread frees so the tick spends no time on it:
-    /// input log segments dropped for room, and chunks unloaded or no longer kept for a commit.
+    /// input log segments dropped for room, chunks unloaded or no longer kept for a commit with
+    /// their extras, and the data of departed players a commit holds.
     Discard {
         segments: Vec<Segment>,
-        chunks: Vec<Chunk>,
+        chunks: Vec<(Chunk, ChunkExtras)>,
+        players: Vec<Arc<PlayerData>>,
     },
     /// The tick stopped normally; nothing follows. Without it the tick died, and the save thread
     /// commits nothing more.
@@ -1281,19 +1283,7 @@ pub(crate) fn run(
         };
         let Some(request) = request else { break };
         if rest.is_none() && requests.is_closed() {
-            // The tick has ended, so everything it sent is queued. It counts only when it ends
-            // with `Finish`; otherwise the tick died and nothing more is committed.
-            let mut left: VecDeque<Request> = std::iter::once(request)
-                .chain(std::iter::from_fn(|| requests.try_recv().ok()))
-                .collect();
-            if !matches!(left.back(), Some(Request::Finish)) {
-                warn!(
-                    dropped = left.len(),
-                    "the tick ended without stopping; requests dropped"
-                );
-                left.clear();
-            }
-            rest = Some(left);
+            rest = Some(left_after_end(request, &mut requests));
             continue;
         }
         let answers = match request {
@@ -1344,8 +1334,12 @@ pub(crate) fn run(
                     }
                 }
             }
-            Request::Discard { segments, chunks } => {
-                drop((segments, chunks));
+            Request::Discard {
+                segments,
+                chunks,
+                players,
+            } => {
+                drop((segments, chunks, players));
                 continue;
             }
             Request::Finish => {
@@ -1366,6 +1360,23 @@ pub(crate) fn run(
         return failure.map_or(Ok(()), Err);
     }
     close_files(thread)
+}
+
+/// The requests left once the tick has ended, `request` first: everything it sent is queued by
+/// then. They count only when they end with `Finish`; otherwise the tick died and nothing more is
+/// committed.
+fn left_after_end(request: Request, requests: &mut mpsc::Receiver<Request>) -> VecDeque<Request> {
+    let mut left: VecDeque<Request> = std::iter::once(request)
+        .chain(std::iter::from_fn(|| requests.try_recv().ok()))
+        .collect();
+    if !matches!(left.back(), Some(Request::Finish)) {
+        warn!(
+            dropped = left.len(),
+            "the tick ended without stopping; requests dropped"
+        );
+        left.clear();
+    }
+    left
 }
 
 /// Finishes the backups in progress and closes every file, the main file last, as in a save.
@@ -1961,7 +1972,7 @@ fn commit(
             AccessWrite::Mark => main.put(key.clone(), seal(&key.to_bytes(), &Mark)?),
             AccessWrite::Ban(entry) => {
                 let record = BanRecord {
-                    reason: entry.reason().to_owned(),
+                    reason: entry.reason().unwrap_or_default().to_owned(),
                     source: entry.source().to_owned(),
                     created: entry.created(),
                     expires: entry.expires(),
@@ -2327,7 +2338,7 @@ pub(crate) fn default_seed(name: &str) -> i64 {
 ///
 /// # Errors
 ///
-/// [`world::Error::OutOfRange`] for a stored spawn outside the world border.
+/// [`world::Error::OutsideWorld`] for a stored spawn outside the world border.
 pub(crate) fn resume(world: &mut World, record: WorldRecord) -> world::Result<()> {
     world.set_number(Some(record.number));
     world.set_time(record.time);

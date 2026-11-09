@@ -712,7 +712,7 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
         [
             sword,
             iron,
-            ItemRef::Item(book.item().unwrap()),
+            ItemRef::Item(book.item_type().unwrap()),
             ItemRef::Custom(&RUBY)
         ]
         .map(|s| i32::from(r.resolve(s).unwrap().runtime_id()))
@@ -836,7 +836,7 @@ fn custom_stacks_round_trip_through_disk_and_network() {
         assert_eq!(Stack::from_nbt(&disk), None, "the table does not know it");
         let net = stack.to_network();
         assert_eq!(
-            i32::from(stack.item().unwrap().runtime_id()),
+            i32::from(stack.item_type().unwrap().runtime_id()),
             net.item_type.network_id
         );
     }

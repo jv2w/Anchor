@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use tokio::sync::mpsc::Receiver;
 
-use super::offers::tests::{from_network_bytes, sample, shape, stack};
+use super::offers::tests::{sample, shape, stack};
 use super::*;
 use crate::event::Listeners;
 use crate::item::{Extra, Kind};
@@ -59,6 +59,7 @@ pub(super) struct Fixtures {
 }
 
 impl Fixtures {
+    /// Hashes what the fixtures hold of the game state (state hash).
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
             villagers,
@@ -93,7 +94,7 @@ fn offer_compounds(offers: &Compound) -> Vec<Compound> {
 }
 
 fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
-    offer_compounds(&from_network_bytes(&screen.serialised_offers))
+    offer_compounds(&screen.serialised_offers)
         .iter()
         .map(|o| match o.get("netId") {
             Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
@@ -284,7 +285,7 @@ fn the_trade_screen_is_the_one_the_official_server_sends() {
     assert!(u.new_trade_ui);
     assert!(u.demand_based_prices);
     // The offers: the root keys, every offer, IDs from the first one.
-    let offers = from_network_bytes(&u.serialised_offers);
+    let offers = &u.serialised_offers;
     assert_eq!(
         offers.keys().collect::<Vec<_>>(),
         ["Recipes", "TierExpRequirements"]
@@ -292,7 +293,7 @@ fn the_trade_screen_is_the_one_the_official_server_sends() {
     let first = offers::FIRST_NET_ID;
     assert_eq!(net_ids(u), [first, first + 1, first + 2]);
     let mut keys = Vec::new();
-    shape(&offer_compounds(&offers)[0], "", &mut keys);
+    shape(&offer_compounds(offers)[0], "", &mut keys);
     for key in [
         "buyA:compound",
         "buyCountA:int",
@@ -768,6 +769,26 @@ fn changes_are_all_or_nothing_and_reach_the_traders() {
     assert_eq!(screens.len(), 1);
     assert_eq!(net_ids(&screens[0]).len(), 2);
     assert_ne!(server.state.hash(), before);
+}
+
+/// A changed list goes to every trader as one shared compound, which the output phase encodes:
+/// the tick neither encodes nor copies it per trader.
+#[test]
+fn a_changed_list_is_one_compound_shared_by_every_trader() {
+    let mut server = Server::new(2);
+    let v = server.villager(1, sample());
+    assert!(server.open(1, v));
+    assert!(server.open(2, v));
+    server.screens(1);
+    server.screens(2);
+    change_offers_with(&mut server.state, v, |o| o.remove(0), TEST_HOOKS).unwrap();
+    let [first] = server.screens(1).try_into().unwrap();
+    let [second] = server.screens(2).try_into().unwrap();
+    assert!(Arc::ptr_eq(
+        &first.serialised_offers,
+        &second.serialised_offers
+    ));
+    assert_eq!(net_ids(&first).len(), 2);
 }
 
 /// Builds offers too large for one `UpdateTrade`: [`MAX_OFFERS`](crate::custom::MAX_OFFERS)

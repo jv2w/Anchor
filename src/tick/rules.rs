@@ -103,6 +103,7 @@ impl Rules {
         updates.encode(w);
     }
 
+    /// Hashes the block entities, entities and updates (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {

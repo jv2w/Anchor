@@ -336,7 +336,7 @@ impl Kind {
         match self {
             Self::Item(item) => item
                 .stack
-                .item()
+                .item_type()
                 .is_some_and(crate::item::Type::is_fire_proof),
             Self::XpOrb(_)
             | Self::FallingBlock(_)

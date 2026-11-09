@@ -94,7 +94,7 @@ type Counts = [u64; 2];
 
 fn add(counts: &mut Counts, stack: &Stack) {
     for (i, c) in counts.iter_mut().enumerate() {
-        if stack.item() == Some(item(i)) {
+        if stack.item_type() == Some(item(i)) {
             *c += u64::from(stack.count());
         }
     }
@@ -176,7 +176,7 @@ fn take_player(state: &mut State, i: usize, n: u8) -> u8 {
     let mut taken = 0;
     let mut rest = Vec::new();
     for s in inventory::take_all(player) {
-        if s.item() == Some(item(i)) && taken < n {
+        if s.item_type() == Some(item(i)) && taken < n {
             let k = (n - taken).min(s.count());
             taken += k;
             rest.push(s.with_count(s.count() - k));
@@ -221,7 +221,10 @@ fn put_chest(state: &mut State, mut stack: Stack) {
             if !fits {
                 continue;
             }
-            let room = stack.max_stack_size() - slot.count().min(stack.max_stack_size());
+            let max = stack
+                .max_stack_size()
+                .expect("a stack that is not empty has a size");
+            let room = max - slot.count().min(max);
             let k = room.min(stack.count());
             *slot = stack.with_count(slot.count() + k);
             stack = stack.with_count(stack.count() - k);
@@ -239,7 +242,7 @@ fn take_chest(state: &mut State, i: usize, n: u8) -> u8 {
         .expect("the chest is there");
     let mut taken = 0;
     for slot in &mut chest.items {
-        if slot.item() == Some(item(i)) && taken < n {
+        if slot.item_type() == Some(item(i)) && taken < n {
             let k = (n - taken).min(slot.count());
             taken += k;
             *slot = slot.with_count(slot.count() - k);

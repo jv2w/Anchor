@@ -182,6 +182,7 @@ impl Offers {
         Some(offers)
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -268,10 +269,12 @@ impl Offers {
     }
 
     /// Gives the offers network IDs from `next` (the server's counter, which moves past them)
-    /// unless they have them. IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts
-    /// over at [`FIRST_NET_ID`].
+    /// unless they have them or do not [fit](Self::fits) (a saved list read too large), which
+    /// cannot be sent: the output phase encodes `UpdateTrade`, too late to refuse the screen.
+    /// IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts over at
+    /// [`FIRST_NET_ID`].
     pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32) {
-        if self.first_net_id.is_some() {
+        if self.first_net_id.is_some() || !self.fits() {
             return;
         }
         #[expect(
@@ -420,19 +423,24 @@ impl Offers {
         c
     }
 
+    /// Whether the saved form fits [`MAX_SAVED_BYTES`] and [`MAX_SAVED_ALLOC`], so the
+    /// villager's entity and its `UpdateTrade` each fit one NBT root. A trade keeps it: it
+    /// changes only fixed-width ints of the saved form.
+    fn fits(&self) -> bool {
+        let mut w = Writer::new(Vec::new(), 0);
+        w.nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
+            .is_ok_and(|c| c.alloc <= MAX_SAVED_ALLOC)
+    }
+
     /// The network ID of the offer at `index`, while the list has IDs.
     fn net_id(&self, index: u32) -> Option<u32> {
         self.first_net_id?.checked_add(index)
     }
 
-    /// Keeps a change of the offers if their saved form still fits [`MAX_SAVED_BYTES`] and
-    /// [`MAX_SAVED_ALLOC`]; otherwise `undo` puts the old offers back.
+    /// Keeps a change of the offers if they still [fit](Self::fits); otherwise `undo` puts the
+    /// old offers back.
     fn kept_if_saved(&mut self, undo: impl FnOnce(&mut Vec<StoredOffer>)) -> Result<()> {
-        let mut w = Writer::new(Vec::new(), 0);
-        let fits = w
-            .nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
-            .is_ok_and(|c| c.alloc <= MAX_SAVED_ALLOC);
-        if !fits {
+        if !self.fits() {
             undo(&mut self.list);
             return Err(Error::TooLarge);
         }
@@ -618,6 +626,7 @@ impl StoredOffer {
         Ok(offer)
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -850,7 +859,9 @@ fn payment(
         return Ok(Some((stack, damage)));
     };
     match u8::try_from(count) {
-        Ok(n) if n >= 1 && n <= stack.max_stack_size() => Ok(Some((stack.with_count(n), damage))),
+        Ok(n) if n >= 1 && stack.max_stack_size().is_some_and(|max| n <= max) => {
+            Ok(Some((stack.with_count(n), damage)))
+        }
         _ => Err("price out of range"),
     }
 }
@@ -1097,7 +1108,7 @@ pub(in crate::tick) mod tests {
         w.into_inner()
     }
 
-    pub(in crate::tick) fn from_network_bytes(bytes: &[u8]) -> Compound {
+    fn from_network_bytes(bytes: &[u8]) -> Compound {
         Reader::new(bytes, bytes.len() * 64, 0)
             .nbt(Encoding::NetworkLittleEndian)
             .unwrap()

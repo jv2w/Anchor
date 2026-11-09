@@ -59,12 +59,16 @@ impl Context<'_> {
     /// [`world`](crate::player::Player::world).
     #[doc(alias = "World::getPlayers")]
     pub fn players_in(&self, world: world::Id) -> impl Iterator<Item = player::Id> + '_ {
-        let loaded = index(self.state, world).is_some();
-        self.state
-            .players
-            .iter()
-            .filter(move |(_, p)| loaded && p.world() == world && p.phase != Phase::Loading)
-            .map(|(&s, _)| player::Id::new(s))
+        index(self.state, world)
+            .into_iter()
+            .flat_map(move |w| self.state.sessions_in(w))
+            .filter(move |s| {
+                self.state
+                    .players
+                    .get(s)
+                    .is_some_and(|p| p.world() == world && p.phase != Phase::Loading)
+            })
+            .map(player::Id::new)
     }
 
     /// The world `id`, if it is loaded (the default world always is).
@@ -91,7 +95,7 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
+    /// [`world::Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addParticle")]
     pub fn add_particle(
         &mut self,
@@ -108,7 +112,7 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
+    /// [`world::Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addSound")]
     pub fn add_sound(&mut self, world: world::Id, pos: Vec3, sound: Sound) -> world::Result<()> {
         self.broadcast_packet(world, pos, &sound.packet(pos))
@@ -123,7 +127,7 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
+    /// [`world::Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::broadcastPacketToViewers")]
     pub fn broadcast_packet(
         &mut self,
@@ -149,8 +153,8 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a center that is not finite or outside the world border,
-    /// or a size that is not finite or not above 0.
+    /// [`world::Error::OutsideWorld`] for a center that is not finite or outside the world border.
+    /// [`world::Error::OutOfRange`] for a size that is not finite or not above 0.
     #[doc(alias = "Explosion::__construct")]
     #[doc(alias = "Explosion::explodeA")]
     #[doc(alias = "Explosion::explodeB")]
@@ -162,6 +166,7 @@ impl Context<'_> {
             fire,
         } = explosion;
         let w = loaded_index(self.state, world)?;
+        check_position(center)?;
         if !entity::is_valid_explosion(center, size) {
             return Err(world::Error::OutOfRange);
         }
@@ -212,7 +217,7 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
+    /// [`world::Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
     /// [`world::Error::Full`] for 1,024 bolts still showing.
     pub fn strike_lightning(
         &mut self,
@@ -297,7 +302,7 @@ fn check_position(pos: Vec3) -> world::Result<()> {
     if entity::is_valid_position(pos) {
         Ok(())
     } else {
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     }
 }
 
@@ -305,8 +310,10 @@ fn check_position(pos: Vec3) -> world::Result<()> {
 /// a player waits for its spawn chunks reaches it too, after its `StartGame` (the outbox follows
 /// the start-game packets); a spawn window that then repeats the same state is harmless.
 pub(super) fn send_to_world(state: &mut State, world: usize, packet: &Packet) {
-    for p in state.players.values_mut() {
-        if is_in_world(p, world) {
+    for &(_, session) in state.world_players.range(State::world_range(world)) {
+        if let Some(p) = state.players.get_mut(&session)
+            && is_in_world(p, world)
+        {
             p.send_packet(packet.clone());
         }
     }

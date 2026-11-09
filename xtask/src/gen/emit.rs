@@ -1045,7 +1045,7 @@ fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> Result<String, Stri
             continue;
         };
         let local = ty.rsplit_once('.').map_or(ty, |(_, l)| l);
-        let name = names::screaming(&format!("{local}{field}MaxLen"), key)?;
+        let name = names::screaming(&format!("Max{local}{field}"), key)?;
         let text = format!(
             "/// The most bytes or elements of gophertunnel `{key}` (Mojang `maxLength`, \
              `maxItems`), {user}.\npub(crate) const {name}: usize = {};\n\n",

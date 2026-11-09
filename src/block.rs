@@ -149,7 +149,7 @@ impl State {
     /// Mining Fatigue).
     pub fn break_time_secs(self, tool: &item::Stack) -> Option<f64> {
         let tool_type = tool
-            .item()
+            .item_type()
             .map_or(ToolType::NONE, item::Type::block_tool_type);
         if (self.is(Class::Leaves) && tool_type == ToolType::SHEARS)
             || (self.kind() == Kind::Bamboo && tool_type == ToolType::SWORD)
@@ -907,7 +907,7 @@ impl BreakInfo {
         if !self.is_breakable() {
             return None;
         }
-        let item = tool.item();
+        let item = tool.item_type();
         let tool_type = item.map_or(ToolType::NONE, item::Type::block_tool_type);
         let harvest_level = item.map_or(0, item::Type::block_tool_harvest_level);
         let multiplier = if self.accepts(tool_type, harvest_level) {
@@ -972,7 +972,7 @@ impl BreakInfo {
     /// Then the block drops what a compatible tool gets.
     #[doc(alias = "BlockBreakInfo::isToolCompatible")]
     pub fn is_tool_compatible(self, tool: &item::Stack) -> bool {
-        let item = tool.item();
+        let item = tool.item_type();
         self.accepts(
             item.map_or(ToolType::NONE, item::Type::block_tool_type),
             item.map_or(0, item::Type::block_tool_harvest_level),
@@ -1804,7 +1804,7 @@ mod tests {
             assert!(
                 got.is_some_and(|t| (t - want).abs() < 1e-12),
                 "{block:?} {:?}: {got:?} != {want}",
-                tool.item()
+                tool.item_type()
             );
         }
     }

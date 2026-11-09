@@ -576,7 +576,7 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     );
     assert_eq!(
         cx.set_creative_inventory(crate::player::Id::new(SessionId::new(9)), None),
-        Err(Error::NoPlayer)
+        Err(Error::Offline)
     );
     cx.set_creative_inventory(p, Some("kits")).unwrap();
     assert_eq!(cx.creative_inventory(p), Some("kits"));

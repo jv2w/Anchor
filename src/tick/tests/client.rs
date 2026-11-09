@@ -163,7 +163,7 @@ impl Client {
                 // Mostly a hotbar item used in the air first: snowballs, eggs, bows, food.
                 let usable = (0_u8..9).filter(|&i| {
                     player.inventory.main_stack(i).is_some_and(|s| {
-                        s.item().is_some_and(|t| {
+                        s.item_type().is_some_and(|t| {
                             t.throw_force().is_some()
                                 || t.is(crate::item::Class::Bow)
                                 || t.food().is_some()
@@ -481,7 +481,7 @@ impl Client {
             player
                 .inventory
                 .main_stack(i)
-                .is_some_and(|s| s.item() == Some(log))
+                .is_some_and(|s| s.item_type() == Some(log))
         }) else {
             return Vec::new();
         };

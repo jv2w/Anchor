@@ -34,10 +34,11 @@ struct Tables {
     players: usize,
     index: usize,
     runtime_ids: usize,
+    world_players: usize,
     /// The admitted logins that have not joined yet.
     logins: usize,
-    /// Whether the indexes by key, name, UUID, runtime ID and viewed chunk hold exactly the
-    /// players.
+    /// Whether the indexes by key, name, UUID, runtime ID, world and viewed chunk hold exactly
+    /// the players.
     indexes_match: bool,
     /// The open forms and displays of the players, without a player's form ID counter.
     forms: String,
@@ -123,6 +124,7 @@ fn tables(state: &State) -> Tables {
         players: state.players.len(),
         index: state.index.len(),
         runtime_ids: state.runtime_ids.len(),
+        world_players: state.world_players.len(),
         logins: state.logins.len(),
         indexes_match: state.index_matches_players(),
         forms: masked(&format!("{:?}", state.forms), &["next"]),

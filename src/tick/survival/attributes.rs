@@ -240,7 +240,7 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
             );
             m.insert(
                 EntityDataKey::Score.into(),
-                MetadataValue::String(player.score_tag().to_owned()),
+                MetadataValue::String(player.score_tag().unwrap_or_default().to_owned()),
             );
         }
         m
@@ -433,7 +433,10 @@ pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
     put(K::DataLifetimeTicks, V::Int32(-1));
     put(K::AlwaysShowNameTag, V::Byte(1));
     put(K::ColorTwoIndex, V::Byte(0));
-    put(K::Score, V::String(player.score_tag().to_owned()));
+    put(
+        K::Score,
+        V::String(player.score_tag().unwrap_or_default().to_owned()),
+    );
     put(K::Agent, V::Int64(-1));
     put(K::EatingCounter, V::Int32(0));
     put(K::InteractText, V::String(String::new()));

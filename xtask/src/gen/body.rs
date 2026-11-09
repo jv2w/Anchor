@@ -2267,6 +2267,16 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
         self.fallible = true;
         let args = Self::io_args(s)?;
+        if s.place.as_ref().is_some_and(is_shared_place) {
+            // A shared field reads into an `Arc` whose allocation the reader charges.
+            if spec.rust != "nbt" {
+                return Err(format!(
+                    "shared field read with {}, which has no Arc reader",
+                    s.method
+                ));
+            }
+            return Ok(format!("r.shared_nbt({})", args.join(", ")));
+        }
         if let Some(max) = self.limit(s.place.as_ref()) {
             if !matches!(spec.rust, "string" | "byte_slice") || !args.is_empty() {
                 return Err(format!(
@@ -2360,14 +2370,11 @@ impl<'m, 'a> Lower<'m, 'a> {
     fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> Result<String, String> {
         self.fallible = true;
         let name = self.m.named(go, self.module)?;
-        let shared = place.is_some_and(|p| {
-            p.kind == "field"
-                && p.x
-                    .as_deref()
-                    .and_then(|x| x.ty.as_ref())
-                    .is_some_and(|t| t.kind == "named" && model::is_shared(&t.name, &p.name))
-        });
-        let name = if shared { format!("Arc<{name}>") } else { name };
+        let name = if place.is_some_and(is_shared_place) {
+            format!("Arc<{name}>")
+        } else {
+            name
+        };
         Ok(format!("{}::decode(r)", type_path(&name)))
     }
 
@@ -3713,6 +3720,16 @@ fn is_byte_list(s: &Stmt, elem: &Param) -> bool {
 
 fn is_int(prim: Option<&str>) -> bool {
     prim.is_some_and(|p| p.starts_with('u') || p.starts_with('i'))
+}
+
+/// Whether a place is a struct field held as `Arc<T>` ([`model::is_shared`]).
+fn is_shared_place(place: &Expr) -> bool {
+    place.kind == "field"
+        && place
+            .x
+            .as_deref()
+            .and_then(|x| x.ty.as_ref())
+            .is_some_and(|t| t.kind == "named" && model::is_shared(&t.name, &place.name))
 }
 
 /// Removes dead stores to locals, backwards from the locals live after the list; returns the

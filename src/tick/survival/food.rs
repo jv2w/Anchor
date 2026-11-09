@@ -20,7 +20,7 @@ use crate::random;
 use crate::tick::{Phase, Player, SessionId, State, block_entity, checkpoint, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
-/// The random stream key of a chorus fruit's teleport.
+/// The random stream of a chorus fruit's teleport.
 const CHORUS_FRUIT: u64 = random::tag("chorus-fruit");
 /// The most blocks a chorus fruit teleports in each direction.
 const CHORUS_RADIUS: i32 = 8;
@@ -42,7 +42,7 @@ pub(super) const MAX_LIFETIME_XP: u32 = i32::MAX.cast_unsigned();
 const MAX_NO_SPRINT_FOOD: f64 = 6.0;
 /// The food level at or below which an empty bar starves.
 const MAX_STARVE_FOOD: f64 = 0.0;
-/// The random stream key of the mending item an orb repairs.
+/// The random stream of the mending item an orb repairs.
 const MENDING: u64 = random::tag("mending");
 /// The items an orb may repair: the held item, the off-hand item and the armor pieces.
 const MENDING_CANDIDATES: usize = 2 + crate::inventory::Kind::Armor.size();
@@ -50,11 +50,11 @@ const MENDING_CANDIDATES: usize = 2 + crate::inventory::Kind::Armor.size();
 const MENDING_PER_POINT: u32 = 2;
 /// The food level from which a full bar heals.
 const MIN_HEAL_FOOD: f64 = 18.0;
-/// The random stream key of a poisonous potato's poison.
+/// The random stream of a poisonous potato's poison.
 const POISONOUS_POTATO: u64 = random::tag("poisonous-potato");
-/// The random stream key of a raw chicken's Hunger effect.
+/// The random stream of a raw chicken's Hunger effect.
 const RAW_CHICKEN: u64 = random::tag("raw-chicken");
-/// The random stream key of rotten flesh's Hunger effect.
+/// The random stream of rotten flesh's Hunger effect.
 const ROTTEN_FLESH: u64 = random::tag("rotten-flesh");
 /// Ticks after an orb pickup before the next.
 const XP_PICKUP_COOLDOWN_TICKS: u8 = 2;
@@ -149,7 +149,7 @@ pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
         return false;
     };
     let mode = player.game_mode();
-    let Some(item) = player.inventory.held().item() else {
+    let Some(item) = player.inventory.held().item_type() else {
         return false;
     };
     if !is_consumable(item) {
@@ -180,7 +180,7 @@ pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
         return false;
     };
     let item = using.item;
-    if player.inventory.held().item() != Some(item) {
+    if player.inventory.held().item_type() != Some(item) {
         return false;
     }
     if player.survival.is_dead() || player.game_mode() == GameMode::Spectator {
@@ -210,7 +210,7 @@ pub(super) fn using_tick(state: &mut State, session: SessionId) {
     let Some(using) = player.survival.using else {
         return;
     };
-    if player.inventory.held().item() != Some(using.item) {
+    if player.inventory.held().item_type() != Some(using.item) {
         player.survival.using = None;
         return;
     }
@@ -610,7 +610,7 @@ pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> b
     let mut candidates = [None; MENDING_CANDIDATES];
     let mut n = 0;
     for (slot, stack) in worn {
-        let durable = stack.item().and_then(Type::max_durability).is_some();
+        let durable = stack.item_type().and_then(Type::max_durability).is_some();
         if durable
             && stack
                 .enchantment_level(Enchantment::Mending)
@@ -832,7 +832,7 @@ fn consumable_now(state: &State, session: SessionId, item: Type) -> Option<Stack
     let player = state.players.get(&session)?;
     let mode = player.survival.mode();
     let held = player.inventory.held();
-    let ok = held.item() == Some(item)
+    let ok = held.item_type() == Some(item)
         && (item.food().is_none_or(Food::can_eat_when_full) || can_eat(state, player, mode))
         && !has_cooldown(state.tick, &player.survival, item);
     ok.then(|| held.clone())

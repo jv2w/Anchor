@@ -163,7 +163,7 @@ fn open_games(cx: &mut Context<'_>, id: player::Id) {
 
 /// Teleports `id` to the arena.
 fn to_arena(cx: &mut Context<'_>, id: player::Id) {
-    let Some(arena) = cx.world_named(ARENA).map(world::World::id) else {
+    let Some(arena) = cx.world_by_name(ARENA) else {
         return;
     };
     or_log(cx.teleport(id, arena, feet(ARENA_START)));
@@ -210,7 +210,7 @@ fn in_lobby(cx: &Context<'_>, id: player::Id) -> bool {
 
 fn is_compass(stack: &Stack) -> bool {
     stack
-        .item()
+        .item_type()
         .is_some_and(|t| t.kind() == Some(item::Kind::Compass))
 }
 

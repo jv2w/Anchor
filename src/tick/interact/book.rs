@@ -110,7 +110,10 @@ fn writable(state: &State, session: SessionId, slot: u8) -> Option<&Stack> {
         .filter(|p| can_act(p))?
         .inventory
         .main_stack(slot)
-        .filter(|s| s.item().is_some_and(|t| t.is(item::Class::WritableBook)))
+        .filter(|s| {
+            s.item_type()
+                .is_some_and(|t| t.is(item::Class::WritableBook))
+        })
 }
 
 /// What `packet` makes of the book `old`: the action, the new book and the pages it changed;

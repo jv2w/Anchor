@@ -67,6 +67,18 @@ type randomIO struct {
 // inSkinImage reports whether the last recorded call came from Skin or SkinAnimation Marshal. Their
 // Reader validates width*height*4 == len(data), which random values never satisfy.
 func (r *randomIO) inSkinImage() bool {
+	name := r.lastCaller()
+	return strings.HasSuffix(name, "protocol.(*Skin).Marshal") || strings.HasSuffix(name, "protocol.(*SkinAnimation).Marshal")
+}
+
+// inUpdateTrade reports whether the last recorded call came from UpdateTrade Marshal, whose raw
+// SerialisedOffers Anchor reads as one network little-endian NBT root.
+func (r *randomIO) inUpdateTrade() bool {
+	return strings.HasSuffix(r.lastCaller(), "packet.(*UpdateTrade).Marshal")
+}
+
+// lastCaller is the function name of the last recorded call's caller.
+func (r *randomIO) lastCaller() string {
 	pc := r.calls[len(r.calls)-1].site[0]
 	name, ok := r.names[pc]
 	if !ok {
@@ -75,7 +87,7 @@ func (r *randomIO) inSkinImage() bool {
 		}
 		r.names[pc] = name
 	}
-	return strings.HasSuffix(name, "protocol.(*Skin).Marshal") || strings.HasSuffix(name, "protocol.(*SkinAnimation).Marshal")
+	return name
 }
 
 func newRandomIO(rng *rand.Rand) *randomIO {
@@ -423,6 +435,11 @@ func (r *randomIO) ByteSlice(x *[]byte) {
 func (r *randomIO) Bytes(x *[]byte) {
 	if !r.keep(r.begin()) {
 		*x = r.randBytes()
+	}
+	if r.inUpdateTrade() {
+		buf := new(bytes.Buffer)
+		newNBTEncoder(buf, nbt.NetworkLittleEndian, nil).root(nbtGen{r.rng, rootKeys}.compound(0))
+		*x = buf.Bytes()
 	}
 	r.w.Bytes(x)
 }

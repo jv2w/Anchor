@@ -133,7 +133,7 @@ impl Access {
         } = &**lists;
         let ban = |h: &mut crate::tick::Fnv, e: &BanEntry| {
             h.bytes(e.name().as_bytes());
-            h.bytes(e.reason().as_bytes());
+            h.bytes(e.reason().unwrap_or_default().as_bytes());
             h.bytes(e.source().as_bytes());
             h.u64(e.created());
             h.u64(e.expires().map_or(0, |t| t.wrapping_add(1)));

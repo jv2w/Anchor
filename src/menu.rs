@@ -322,8 +322,8 @@ impl Change {
     /// Whether the request names slot `slot` of `inventory` (named as in
     /// [`changes`](Self::changes)): a slot the handler must leave as it is. A request may name a
     /// slot it leaves as it was (items taken out and put back), which `changes` does not list.
-    pub fn is_slot_named(&self, inventory: Inventory, slot: u8) -> bool {
-        self.named.contains(&(inventory, slot))
+    pub fn is_slot_named(&self, inventory: Inventory, slot: usize) -> bool {
+        u8::try_from(slot).is_ok_and(|slot| self.named.contains(&(inventory, slot)))
     }
 
     /// How many of the items on the player's cursor after the change are lent

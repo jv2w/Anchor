@@ -110,7 +110,7 @@ pub(in crate::tick) fn damage(
     if !settings.durability {
         return tool.clone();
     }
-    let Some(item) = tool.item() else {
+    let Some(item) = tool.item_type() else {
         return tool.clone();
     };
     let Some(max) = item.max_durability() else {
@@ -208,7 +208,7 @@ mod tests {
             assert!(
                 close(got, want),
                 "{block:?} {:?}: {got} != {want}",
-                with.item()
+                with.item_type()
             );
         }
         assert_eq!(
@@ -297,7 +297,7 @@ mod tests {
         let on = settings(true);
         let mut rng = Random::new(0, 0, 0);
         let pick = tool(I::WoodenPickaxe);
-        let max = pick.item().unwrap().max_durability().unwrap();
+        let max = pick.item_type().unwrap().max_durability().unwrap();
         let worn = damage(&on, &pick, 1, &mut rng);
         assert_eq!(worn.damage(), 1);
         let almost = pick.with_damage(max - 1).unwrap();
@@ -334,7 +334,7 @@ mod tests {
         let off = settings(false);
         let mut rng = Random::new(0, 0, 0);
         let pick = tool(I::WoodenPickaxe);
-        let max = pick.item().unwrap().max_durability().unwrap();
+        let max = pick.item_type().unwrap().max_durability().unwrap();
         let almost = pick.with_damage(max - 1).unwrap();
         assert_eq!(damage(&off, &almost, 5, &mut rng), almost);
         let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, 3);

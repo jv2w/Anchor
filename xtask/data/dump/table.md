@@ -3404,7 +3404,7 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:443 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:970 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:626 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
+| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:655 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
 | `command\SimpleCommandMap` | merged | src/tick/command.rs:536 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
@@ -3756,14 +3756,14 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\bedrock\DyeColorIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\DyeColorIdMap::toInvertedId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\DyeColorIdMap::toItemId` | skipped |  |  | save ID tables are generated from the dump |
-| `data\bedrock\EffectIdMap` | merged | src/effect.rs:284 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
-| `data\bedrock\EffectIdMap::fromId` | implemented | src/effect.rs:284 `from_id` | src/effect.rs::ids_round_trip |  |
+| `data\bedrock\EffectIdMap` | merged | src/effect.rs:285 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
+| `data\bedrock\EffectIdMap::fromId` | implemented | src/effect.rs:285 `from_id` | src/effect.rs::ids_round_trip |  |
 | `data\bedrock\EffectIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EffectIdMap::register` | skipped |  |  | no custom effects (the client cannot show them) |
 | `data\bedrock\EffectIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EffectIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\EffectIdMap::toId` | implemented | src/effect.rs:321 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `data\bedrock\EffectIds` | merged | src/effect.rs:284 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
+| `data\bedrock\EffectIdMap::toId` | implemented | src/effect.rs:322 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `data\bedrock\EffectIds` | merged | src/effect.rs:285 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
 | `data\bedrock\EnchantmentIdMap` | merged | src/item.rs:1047 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
 | `data\bedrock\EnchantmentIdMap::fromId` | implemented | src/item.rs:1047 `from_id` | src/item.rs::enchantment_ids_round_trip |  |
 | `data\bedrock\EnchantmentIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -3837,14 +3837,14 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\bedrock\NoteInstrumentIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\NoteInstrumentIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\NoteInstrumentIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
-| `data\bedrock\PotionTypeIdMap` | merged | src/effect.rs:354 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
-| `data\bedrock\PotionTypeIdMap::fromId` | implemented | src/effect.rs:354 `from_id` | src/effect.rs::ids_round_trip |  |
+| `data\bedrock\PotionTypeIdMap` | merged | src/effect.rs:355 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
+| `data\bedrock\PotionTypeIdMap::fromId` | implemented | src/effect.rs:355 `from_id` | src/effect.rs::ids_round_trip |  |
 | `data\bedrock\PotionTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\PotionTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\PotionTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\PotionTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\PotionTypeIdMap::toId` | implemented | src/effect.rs:387 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `data\bedrock\PotionTypeIds` | merged | src/effect.rs:354 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
+| `data\bedrock\PotionTypeIdMap::toId` | implemented | src/effect.rs:388 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `data\bedrock\PotionTypeIds` | merged | src/effect.rs:355 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
 | `data\bedrock\SuspiciousStewTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\SuspiciousStewTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\SuspiciousStewTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -4419,8 +4419,8 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `entity\Ageable` | implemented | src/tick/entity/api.rs:1235 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
-| `entity\Ageable::isBaby` | implemented | src/tick/entity/api.rs:1236 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Ageable` | implemented | src/tick/entity/api.rs:1236 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Ageable::isBaby` | implemented | src/tick/entity/api.rs:1237 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
 | `entity\Attribute` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Attribute::__construct` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Attribute::getDefaultValue` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
@@ -4458,15 +4458,15 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::addMotion` | differs | src/tick/entity/api.rs:567 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index | `Mut::set_motion` replaces the motion; it does not add to it |
 | `entity\Entity::attack` | implemented | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:72 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
-| `entity\Entity::broadcastAnimation` | implemented | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\Entity::broadcastSound` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::broadcastAnimation` | implemented | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
+| `entity\Entity::broadcastSound` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::canBeMovedByCurrents` | skipped |  |  | entity rule code |
 | `entity\Entity::canBeRenamed` | skipped |  |  | name tag item rule code |
 | `entity\Entity::canClimb` | implemented | src/tick/survival/api.rs:292 `can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `entity\Entity::canClimbWalls` | implemented | src/tick/survival/api.rs:298 `can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `entity\Entity::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\Entity::canSaveWithChunk` | implemented | src/tick/entity/api.rs:1053 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
+| `entity\Entity::canSaveWithChunk` | implemented | src/tick/entity/api.rs:1054 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
 | `entity\Entity::close` | implemented | src/tick/entity/api.rs:85 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::despawnFrom` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::despawnFromAll` | skipped |  |  | viewers follow the chunks each player sees |
@@ -4474,52 +4474,52 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:439 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:1136 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
-| `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:1136 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:1148 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
-| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1162 `eye_position`<br>src/tick/player.rs:435 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:1168 `fall_distance`<br>src/tick/survival/api.rs:373 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:1183 `fire_ticks`<br>src/tick/survival/api.rs:379 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1210 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Entity::getHealth` | implemented | src/tick/entity/api.rs:1222 `health`<br>src/tick/survival/api.rs:427 `health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:1137 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
+| `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:1137 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:1149 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
+| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1163 `eye_position`<br>src/tick/player.rs:435 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:1169 `fall_distance`<br>src/tick/survival/api.rs:373 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:1184 `fire_ticks`<br>src/tick/survival/api.rs:379 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1211 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::getHealth` | implemented | src/tick/entity/api.rs:1223 `health`<br>src/tick/survival/api.rs:427 `health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:433 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `entity\Entity::getId` | implemented | src/tick/entity/api.rs:1496 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getId` | implemented | src/tick/entity/api.rs:1497 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:578 `last_damage_cause` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
-| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1453 `position`<br>src/tick/player.rs:429 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:1334 `max_health`<br>src/tick/survival/api.rs:598 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:1341 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:1364 `name_tag`<br>src/tick/survival/api.rs:613 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1454 `position`<br>src/tick/player.rs:429 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:1335 `max_health`<br>src/tick/survival/api.rs:598 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:1342 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:1365 `name_tag`<br>src/tick/survival/api.rs:613 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::getNetworkProperties` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
-| `entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1387 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1388 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1419 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1452 `position`<br>src/tick/player.rs:428 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
-| `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:1502 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1388 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1389 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1420 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1453 `position`<br>src/tick/player.rs:428 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
+| `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:1503 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:643 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::getSize` | merged | src/tick/entity.rs:439 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
-| `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1521 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1522 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
-| `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1550 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1562 `world`<br>src/tick/player.rs:483 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:1216 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1551 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1563 `world`<br>src/tick/player.rs:483 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:1217 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:421 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::heal` | implemented | src/tick/entity/api.rs:93 `heal`<br>src/tick/survival/api.rs:815 `heal` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:1228 `is_alive`<br>src/tick/survival/api.rs:451 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
+| `entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:1229 `is_alive`<br>src/tick/survival/api.rs:451 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `entity\Entity::isClosed` | skipped |  |  | a removed entity's Id finds nothing (`Context::entity` is `None`) |
-| `entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:1255 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:1256 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::isFlaggedForDespawn` | skipped |  |  | a flagged entity is gone from the API at once: `Context::entity` is `None` |
-| `entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1514 `is_player_inside_solid` | src/tick/entity/custom/tests.rs::a_custom_entity_suffocates_with_its_eyes_in_a_solid_block<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_suffocates_at_its_scaled_eyes<br>src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:1261 `is_invisible`<br>src/tick/survival/api.rs:494 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:1286 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:1292 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:1298 `is_on_fire`<br>src/tick/survival/api.rs:504 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:1304 `is_on_ground`<br>src/tick/survival/api.rs:510 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1515 `is_player_inside_solid` | src/tick/entity/custom/tests.rs::a_custom_entity_suffocates_with_its_eyes_in_a_solid_block<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_suffocates_at_its_scaled_eyes<br>src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:1262 `is_invisible`<br>src/tick/survival/api.rs:494 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:1287 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:1293 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:1299 `is_on_fire`<br>src/tick/survival/api.rs:504 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:1305 `is_on_ground`<br>src/tick/survival/api.rs:510 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:522 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1523 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1524 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Entity::kill` | implemented | src/tick/entity/api.rs:127 `kill`<br>src/tick/survival/api.rs:1156 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `entity\Entity::nextRuntimeId` | skipped |  |  | runtime IDs are assigned by the engine |
 | `entity\Entity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
@@ -4545,21 +4545,21 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1179 `set_last_damage_cause` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
 | `entity\Entity::setMaxHealth` | implemented | src/tick/survival/api.rs:1231 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::setMotion` | implemented | src/tick/entity/api.rs:566 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
-| `entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:583 `set_name_tag`<br>src/tick/survival/api.rs:1287 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:594 `set_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:600 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:584 `set_name_tag`<br>src/tick/survival/api.rs:1287 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:595 `set_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:601 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1298 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:607 `set_on_fire`<br>src/tick/survival/api.rs:1306 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:644 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:746 `set_rotation`<br>src/tick/survival/api.rs:1321 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/survival/api.rs::a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick |  |
-| `entity\Entity::setScale` | implemented | src/tick/entity/api.rs:764 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1353 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1364 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:608 `set_on_fire`<br>src/tick/survival/api.rs:1306 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:645 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:747 `set_rotation`<br>src/tick/survival/api.rs:1321 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/survival/api.rs::a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick |  |
+| `entity\Entity::setScale` | implemented | src/tick/entity/api.rs:765 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1354 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1365 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are the API table's constants per kind: `Entity::step_height` reads them |
 | `entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::spawnToAll` | implemented | src/tick/entity/custom.rs:316 `spawn_custom_entity` | src/tick/entity/custom/tests.rs::custom_entities_are_shown_with_their_identifier_health_and_box_and_removed |  |
-| `entity\Entity::teleport` | implemented | src/action/survival.rs:179 `Teleport`<br>src/tick/entity/api.rs:894 `teleport`<br>src/tick/player.rs:837 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::teleport` | implemented | src/action/survival.rs:179 `Teleport`<br>src/tick/entity/api.rs:895 `teleport`<br>src/tick/player.rs:843 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\EntityDataHelper` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseLocation` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseVec3` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4574,10 +4574,10 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\EntityFactory::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `entity\EntitySizeInfo` | merged | src/tick/entity.rs:439 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::__construct` | skipped |  |  | entity sizes are fixed per type |
-| `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:1148 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
+| `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:1149 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
 | `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:439 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:439 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
-| `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:764 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
+| `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:765 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
 | `entity\ExperienceManager` | merged | src/tick/survival/api.rs:662 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\ExperienceManager::__construct` | skipped |  |  | every player has its xp |
 | `entity\ExperienceManager::addXp` | implemented | src/tick/survival/api.rs:745 `add_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
@@ -4594,20 +4594,20 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\ExperienceManager::setCanAttractXpOrbs` | implemented | src/tick/survival/api.rs:918 `set_can_attract_xp_orbs` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
 | `entity\ExperienceManager::setCurrentTotalXp` | implemented | src/tick/survival/api.rs:955 `set_current_total_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::setLifetimeTotalXp` | implemented | src/tick/survival/api.rs:1190 `set_lifetime_total_xp` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
-| `entity\ExperienceManager::setXpAndProgress` | merged | src/tick/survival/api.rs:1437 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::setXpLevel` |
-| `entity\ExperienceManager::setXpLevel` | implemented | src/tick/survival/api.rs:1437 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::setXpProgress` | implemented | src/tick/survival/api.rs:1457 `set_xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::subtractXp` | implemented | src/tick/survival/api.rs:1475 `subtract_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::subtractXpLevels` | implemented | src/tick/survival/api.rs:1491 `subtract_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::setXpAndProgress` | merged | src/tick/survival/api.rs:1438 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::setXpLevel` |
+| `entity\ExperienceManager::setXpLevel` | implemented | src/tick/survival/api.rs:1438 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::setXpProgress` | implemented | src/tick/survival/api.rs:1458 `set_xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::subtractXp` | implemented | src/tick/survival/api.rs:1476 `subtract_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::subtractXpLevels` | implemented | src/tick/survival/api.rs:1492 `subtract_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::tick` | skipped |  |  | xp rule code |
-| `entity\Explosive` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\Explosive::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
+| `entity\Explosive` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
+| `entity\Explosive::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\FoodSource` | merged | src/item.rs:859 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `entity\FoodSource::getFoodRestore` | implemented | src/item.rs:859 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\FoodSource::getSaturationRestore` | implemented | src/item.rs:865 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\FoodSource::requiresHunger` | implemented | src/item.rs:853 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\Human` | implemented | src/entity.rs:91 `Human` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1921 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1922 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
 | `entity\Human::canEat` | skipped |  |  | food rule code |
 | `entity\Human::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
@@ -4618,7 +4618,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:391 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:47 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getName` | merged | src/tick/player.rs:394 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
-| `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\Human::getOffHandInventory` | implemented | src/tick/inventory/api.rs:49 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
 | `entity\Human::getSkin` | implemented | src/tick/player.rs:463 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
@@ -4632,7 +4632,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Human::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\Human::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
 | `entity\Human::setEnchantmentSeed` | skipped |  |  | the enchanting table is removed: there is no enchantment seed |
-| `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1379 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1380 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\HungerManager` | merged | src/tick/survival/api.rs:391 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\HungerManager::__construct` | skipped |  |  | every player has its food |
@@ -4670,13 +4670,13 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::getFrostWalkerLevel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `entity\Living::getHighestArmorEnchantmentLevel` | skipped |  |  | damage rule code |
 | `entity\Living::getJumpVelocity` | skipped |  |  | movement rule code |
-| `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1552 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1553 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:591 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:1335 `max_health`<br>src/tick/survival/api.rs:599 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:1336 `max_health`<br>src/tick/survival/api.rs:599 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:606 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Living::getName` | merged | src/tick/player.rs:394 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1568 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1569 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:457 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Living::isGliding` | implemented | src/tick/survival/api.rs:481 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
@@ -4696,19 +4696,19 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::setMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:1208 `set_max_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `entity\Living::setMaxHealth` | implemented | src/tick/survival/api.rs:1232 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::setMovementSpeed` | implemented | src/tick/survival/api.rs:1273 `set_movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:608 `set_on_fire`<br>src/tick/survival/api.rs:1307 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1395 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1417 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1424 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Location` | merged | src/tick/entity/api.rs:1578 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
+| `entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:609 `set_on_fire`<br>src/tick/survival/api.rs:1307 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1396 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1418 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1425 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Location` | merged | src/tick/entity/api.rs:1579 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
 | `entity\Location::__construct` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Location::asLocation` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::equals` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::fromObject` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
-| `entity\Location::getPitch` | implemented | src/tick/entity/api.rs:1446 `pitch` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Location::getYaw` | implemented | src/tick/entity/api.rs:1578 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\NeverSavedWithChunkEntity` | merged | src/tick/entity/api.rs:1053 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
+| `entity\Location::getPitch` | implemented | src/tick/entity/api.rs:1447 `pitch` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Location::getYaw` | implemented | src/tick/entity/api.rs:1579 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\NeverSavedWithChunkEntity` | merged | src/tick/entity/api.rs:1054 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
 | `entity\Skin` | implemented | src/entity/skin.rs:49 `Skin` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::__construct` | implemented | src/entity/skin.rs:62 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::getCapeData` | implemented | src/entity/skin.rs:78 `cape` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
@@ -4724,61 +4724,61 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Squid::getPickedItem` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\Squid::initEntity` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\Villager` | implemented | src/entity.rs:88 `Villager` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\Villager::getName` | implemented | src/tick/entity/api.rs:1349 `name` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Villager::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\Villager::getPickedItem` | implemented | src/tick/entity/api.rs:1424 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\Villager::getProfession` | implemented | src/tick/entity/api.rs:1477 `profession` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Villager::isBaby` | implemented | src/tick/entity/api.rs:1237 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Villager::getName` | implemented | src/tick/entity/api.rs:1350 `name` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Villager::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\Villager::getPickedItem` | implemented | src/tick/entity/api.rs:1425 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\Villager::getProfession` | implemented | src/tick/entity/api.rs:1478 `profession` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Villager::isBaby` | implemented | src/tick/entity/api.rs:1238 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
 | `entity\Villager::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\Villager::setProfession` | implemented | src/tick/entity/api.rs:717 `set_profession` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\Villager::setProfession` | implemented | src/tick/entity/api.rs:718 `set_profession` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\WaterAnimal` | skipped |  |  | mob AI: the API table's water animals are its swimming squid |
 | `entity\WaterAnimal::canBreathe` | skipped |  |  | mob AI: the API table's water animals are its swimming squid |
 | `entity\WaterAnimal::isBaby` | skipped |  |  | mob AI: the API table's water animals are its swimming squid |
 | `entity\WaterAnimal::onAirExpired` | skipped |  |  | mob AI: the API table's water animals are its swimming squid |
 | `entity\Zombie` | implemented | src/entity.rs:94 `Zombie` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
 | `entity\Zombie::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
-| `entity\Zombie::getName` | implemented | src/tick/entity/api.rs:1350 `name` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
-| `entity\Zombie::getNetworkTypeId` | implemented | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
-| `entity\Zombie::getPickedItem` | implemented | src/tick/entity/api.rs:1425 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\Zombie::getName` | implemented | src/tick/entity/api.rs:1351 `name` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
+| `entity\Zombie::getNetworkTypeId` | implemented | src/tick/entity/api.rs:1372 `network_type` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
+| `entity\Zombie::getPickedItem` | implemented | src/tick/entity/api.rs:1426 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
 | `entity\Zombie::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\animation\Animation` | implemented | src/entity/animation.rs:12 `Animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\Animation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\Animation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ArmSwingAnimation` | implemented | src/entity/animation.rs:18 `ArmSwing` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\ArmSwingAnimation::__construct` | implemented | src/entity/animation.rs:19 `ArmSwing` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\ArmSwingAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ArmSwingAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ArrowShakeAnimation` | implemented | src/entity/animation.rs:22 `ArrowShake` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\ArrowShakeAnimation::__construct` | implemented | src/entity/animation.rs:23 `ArrowShake` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\ArrowShakeAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ArrowShakeAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ConsumingItemAnimation` | implemented | src/entity/animation.rs:29 `ConsumingItem` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\ConsumingItemAnimation::__construct` | implemented | src/entity/animation.rs:30 `ConsumingItem` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\ConsumingItemAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ConsumingItemAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\CriticalHitAnimation` | implemented | src/entity/animation.rs:33 `CriticalHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\CriticalHitAnimation::__construct` | implemented | src/entity/animation.rs:34 `CriticalHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\CriticalHitAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\CriticalHitAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\DeathAnimation` | implemented | src/entity/animation.rs:40 `Death` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\DeathAnimation::__construct` | implemented | src/entity/animation.rs:41 `Death` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\DeathAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\DeathAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\FireworkParticlesAnimation` | implemented | src/entity/animation.rs:44 `FireworkParticles` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\FireworkParticlesAnimation::__construct` | implemented | src/entity/animation.rs:45 `FireworkParticles` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\FireworkParticlesAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\FireworkParticlesAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\HurtAnimation` | implemented | src/entity/animation.rs:48 `Hurt` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\HurtAnimation::__construct` | implemented | src/entity/animation.rs:49 `Hurt` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\HurtAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\HurtAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ItemEntityStackSizeChangeAnimation` | implemented | src/entity/animation.rs:52 `ItemStackSize` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\ItemEntityStackSizeChangeAnimation::__construct` | implemented | src/entity/animation.rs:53 `ItemStackSize` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\ItemEntityStackSizeChangeAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ItemEntityStackSizeChangeAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\MagicHitAnimation` | implemented | src/entity/animation.rs:59 `MagicHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\MagicHitAnimation::__construct` | implemented | src/entity/animation.rs:60 `MagicHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\MagicHitAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\MagicHitAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\RespawnAnimation` | implemented | src/entity/animation.rs:66 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\RespawnAnimation::__construct` | implemented | src/entity/animation.rs:67 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\RespawnAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\RespawnAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\SquidInkCloudAnimation` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\animation\SquidInkCloudAnimation::__construct` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\animation\SquidInkCloudAnimation::encode` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\animation\TotemUseAnimation` | implemented | src/entity/animation.rs:70 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\TotemUseAnimation::__construct` | implemented | src/entity/animation.rs:71 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `entity\animation\TotemUseAnimation::encode` | merged | src/tick/entity/api.rs:1798 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
+| `entity\animation\TotemUseAnimation::encode` | merged | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\effect\AbsorptionEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\AbsorptionEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\AbsorptionEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
@@ -4791,44 +4791,44 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\effect\Effect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\Effect::canTick` | skipped |  |  | effect rule code |
 | `entity\effect\Effect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\Effect::getColor` | implemented | src/effect.rs:295 `colour` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\Effect::getDefaultDuration` | implemented | src/effect.rs:309 `default_duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\Effect::getName` | implemented | src/effect.rs:338 `translation_key` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\Effect::hasBubbles` | implemented | src/effect.rs:315 `has_bubbles` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\Effect::isBad` | implemented | src/effect.rs:327 `is_bad` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::getColor` | implemented | src/effect.rs:296 `colour` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::getDefaultDuration` | implemented | src/effect.rs:310 `default_duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::getName` | implemented | src/effect.rs:339 `translation_key` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::hasBubbles` | implemented | src/effect.rs:316 `has_bubbles` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::isBad` | implemented | src/effect.rs:328 `is_bad` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `entity\effect\Effect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
 | `entity\effect\EffectCollection` | merged | src/tick/survival/api.rs:698 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `EffectCollection::add` |
 | `entity\effect\EffectCollection::__construct` | skipped |  |  | every player and living entity has its effects |
 | `entity\effect\EffectCollection::add` | implemented | src/tick/survival/api.rs:698 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::all` | implemented | src/tick/survival/api.rs:358 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::canAdd` | implemented | src/effect.rs:110 `can_replace` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
+| `entity\effect\EffectCollection::canAdd` | implemented | src/effect.rs:111 `can_replace` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::clear` | implemented | src/tick/survival/api.rs:767 `clear_effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::get` | implemented | src/tick/survival/api.rs:348 `effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::getBubbleColor` | implemented | src/effect.rs:403 `bubble_colour` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
+| `entity\effect\EffectCollection::getBubbleColor` | implemented | src/effect.rs:404 `bubble_colour` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::getEffectAddHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove |
 | `entity\effect\EffectCollection::getEffectRemoveHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove |
 | `entity\effect\EffectCollection::has` | implemented | src/tick/survival/api.rs:409 `has_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::hasOnlyAmbientEffects` | implemented | src/effect.rs:409 `is_only_ambient` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
+| `entity\effect\EffectCollection::hasOnlyAmbientEffects` | implemented | src/effect.rs:410 `is_only_ambient` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::remove` | implemented | src/tick/survival/api.rs:827 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::setEffectFilterForBubbles` | skipped |  |  | bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks |
-| `entity\effect\EffectInstance` | implemented | src/effect.rs:37 `Instance` | src/effect.rs::effect_and_potion_data_are_the_dump_values |  |
-| `entity\effect\EffectInstance::__construct` | implemented | src/effect.rs:303 `instance` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::decreaseDuration` | merged | src/effect.rs:192 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy | into `EffectInstance::setDuration` |
-| `entity\effect\EffectInstance::getAmplifier` | implemented | src/effect.rs:102 `amplifier` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\EffectInstance::getColor` | implemented | src/effect.rs:117 `colour` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::getDuration` | implemented | src/effect.rs:123 `duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\EffectInstance::getEffectLevel` | implemented | src/effect.rs:159 `level` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::getType` | implemented | src/effect.rs:129 `effect` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\EffectInstance::hasExpired` | implemented | src/effect.rs:141 `is_expired` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::isAmbient` | implemented | src/effect.rs:135 `is_ambient` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:147 `is_infinite` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
-| `entity\effect\EffectInstance::isVisible` | implemented | src/effect.rs:153 `is_visible` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance` | implemented | src/effect.rs:38 `Instance` | src/effect.rs::effect_and_potion_data_are_the_dump_values |  |
+| `entity\effect\EffectInstance::__construct` | implemented | src/effect.rs:304 `instance` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::decreaseDuration` | merged | src/effect.rs:193 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy | into `EffectInstance::setDuration` |
+| `entity\effect\EffectInstance::getAmplifier` | implemented | src/effect.rs:103 `amplifier` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::getColor` | implemented | src/effect.rs:118 `colour` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::getDuration` | implemented | src/effect.rs:124 `duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::getEffectLevel` | implemented | src/effect.rs:160 `level` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::getType` | implemented | src/effect.rs:130 `effect` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::hasExpired` | implemented | src/effect.rs:142 `is_expired` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::isAmbient` | implemented | src/effect.rs:136 `is_ambient` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:148 `is_infinite` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::isVisible` | implemented | src/effect.rs:154 `is_visible` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `entity\effect\EffectInstance::resetColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved |
-| `entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:165 `ambient` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
-| `entity\effect\EffectInstance::setAmplifier` | implemented | src/effect.rs:184 `with_amplifier` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:166 `ambient` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::setAmplifier` | implemented | src/effect.rs:185 `with_amplifier` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
 | `entity\effect\EffectInstance::setColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved |
-| `entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:192 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:204 `without_particles` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:193 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:205 `without_particles` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
 | `entity\effect\EffectManager` | merged | src/tick/survival/api.rs:697 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `EffectManager::add` |
 | `entity\effect\EffectManager::__construct` | skipped |  |  | every player and living entity has its effects |
 | `entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:697 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
@@ -4908,20 +4908,20 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\effect\WitherEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\WitherEffect::getApplyInterval` | skipped |  |  | effect rule code |
 | `entity\object\AreaEffectCloud` | implemented | src/entity.rs:85 `AreaEffectCloud` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\AreaEffectCloud::__construct` | implemented | src/tick/entity/api.rs:1836 `spawn_area_effect_cloud` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\AreaEffectCloud::getAge` | implemented | src/tick/entity/api.rs:1059 `cloud_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getEffects` | implemented | src/tick/entity/api.rs:1067 `cloud_effects` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getInitialRadius` | implemented | src/tick/entity/api.rs:1073 `cloud_initial_radius` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getMaxAge` | implemented | src/tick/entity/api.rs:1085 `cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:1079 `cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\AreaEffectCloud::getRadius` | implemented | src/tick/entity/api.rs:1091 `cloud_radius` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\AreaEffectCloud::getRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:1101 `cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:1107 `cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getRadiusChangePerTick` | implemented | src/tick/entity/api.rs:1113 `cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getReapplicationDelay` | implemented | src/tick/entity/api.rs:1119 `cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::isFireProof` | merged | src/tick/entity/api.rs:1255 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\AreaEffectCloud::__construct` | implemented | src/tick/entity/api.rs:1837 `spawn_area_effect_cloud` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\AreaEffectCloud::getAge` | implemented | src/tick/entity/api.rs:1060 `cloud_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getEffects` | implemented | src/tick/entity/api.rs:1068 `cloud_effects` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getInitialRadius` | implemented | src/tick/entity/api.rs:1074 `cloud_initial_radius` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getMaxAge` | implemented | src/tick/entity/api.rs:1086 `cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:1080 `cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\AreaEffectCloud::getRadius` | implemented | src/tick/entity/api.rs:1092 `cloud_radius` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\AreaEffectCloud::getRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:1102 `cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:1108 `cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getRadiusChangePerTick` | implemented | src/tick/entity/api.rs:1114 `cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getReapplicationDelay` | implemented | src/tick/entity/api.rs:1120 `cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::isFireProof` | merged | src/tick/entity/api.rs:1256 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\AreaEffectCloud::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\AreaEffectCloud::setMaxAge` | implemented | src/tick/entity/api.rs:292 `set_cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
 | `entity\object\AreaEffectCloud::setMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:278 `set_cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
@@ -4931,79 +4931,79 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\object\AreaEffectCloud::setReapplicationDelay` | implemented | src/tick/entity/api.rs:351 `set_cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
 | `entity\object\EndCrystal` | implemented | src/entity.rs:102 `EndCrystal` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\EndCrystal::attack` | merged | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:72 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
-| `entity\object\EndCrystal::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\object\EndCrystal::getBeamTarget` | implemented | src/tick/entity/api.rs:1037 `beam_target` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\EndCrystal::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\EndCrystal::getPickedItem` | implemented | src/tick/entity/api.rs:1420 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\object\EndCrystal::isFireProof` | merged | src/tick/entity/api.rs:1255 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\EndCrystal::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
+| `entity\object\EndCrystal::getBeamTarget` | implemented | src/tick/entity/api.rs:1038 `beam_target` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\EndCrystal::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\EndCrystal::getPickedItem` | implemented | src/tick/entity/api.rs:1421 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\object\EndCrystal::isFireProof` | merged | src/tick/entity/api.rs:1256 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\EndCrystal::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\EndCrystal::setBeamTarget` | implemented | src/tick/entity/api.rs:246 `set_beam_target` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
 | `entity\object\EndCrystal::setShowBase` | implemented | src/tick/entity/api.rs:230 `set_base_visible` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
-| `entity\object\EndCrystal::showBase` | implemented | src/tick/entity/api.rs:1243 `is_base_visible` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\EndCrystal::showBase` | implemented | src/tick/entity/api.rs:1244 `is_base_visible` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb` | implemented | src/entity.rs:58 `XpOrb` | src/tick/entity.rs::orbs_follow_the_nearest_player_and_give_it_their_xp<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:2084 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `entity\object\ExperienceOrb::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\ExperienceOrb::getDespawnDelay` | implemented | src/tick/entity/api.rs:1126 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:2085 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\object\ExperienceOrb::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\ExperienceOrb::getDespawnDelay` | implemented | src/tick/entity/api.rs:1127 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb::getMaxOrbSize` | skipped |  |  | entity rule code |
-| `entity\object\ExperienceOrb::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\ExperienceOrb::getTargetPlayer` | implemented | src/tick/entity/api.rs:1531 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\object\ExperienceOrb::getXpValue` | implemented | src/tick/entity/api.rs:1569 `xp_value` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ExperienceOrb::hasTargetPlayer` | implemented | src/tick/entity/api.rs:1532 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\object\ExperienceOrb::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\ExperienceOrb::getTargetPlayer` | implemented | src/tick/entity/api.rs:1532 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\object\ExperienceOrb::getXpValue` | implemented | src/tick/entity/api.rs:1570 `xp_value` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ExperienceOrb::hasTargetPlayer` | implemented | src/tick/entity/api.rs:1533 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\object\ExperienceOrb::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\ExperienceOrb::setDespawnDelay` | implemented | src/tick/entity/api.rs:378 `set_despawn_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ExperienceOrb::setTargetPlayer` | implemented | src/tick/entity/api.rs:814 `set_target_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\object\ExperienceOrb::setXpValue` | implemented | src/tick/entity/api.rs:875 `set_xp_value` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ExperienceOrb::setTargetPlayer` | implemented | src/tick/entity/api.rs:815 `set_target_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\object\ExperienceOrb::setXpValue` | implemented | src/tick/entity/api.rs:876 `set_xp_value` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\object\ExperienceOrb::splitIntoOrbSizes` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock` | implemented | src/entity.rs:61 `FallingBlock` | src/tick/entity.rs::falling_blocks_land_as_blocks_or_drop_their_item<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\FallingBlock::__construct` | implemented | src/tick/entity/api.rs:1867 `spawn_falling_block` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\object\FallingBlock::__construct` | implemented | src/tick/entity/api.rs:1868 `spawn_falling_block` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\object\FallingBlock::attack` | merged | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:72 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\FallingBlock::canBeMovedByCurrents` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\object\FallingBlock::getBlock` | implemented | src/tick/entity/api.rs:1174 `falling_block` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FallingBlock::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\FallingBlock::getBlock` | implemented | src/tick/entity/api.rs:1175 `falling_block` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FallingBlock::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\FallingBlock::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\FallingBlock::getPickedItem` | implemented | src/tick/entity/api.rs:1421 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\object\FallingBlock::getPickedItem` | implemented | src/tick/entity/api.rs:1422 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
 | `entity\object\FallingBlock::parseBlockNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\FallingBlock::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\FireworkRocket` | implemented | src/entity.rs:105 `FireworkRocket` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::__construct` | implemented | src/tick/entity/api.rs:1888 `spawn_firework_rocket` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
-| `entity\object\FireworkRocket::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\FireworkRocket::__construct` | implemented | src/tick/entity/api.rs:1889 `spawn_firework_rocket` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
+| `entity\object\FireworkRocket::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\object\FireworkRocket::explode` | skipped |  |  | entity rule code: a rocket bursts when its flight time is up, and `Mut::set_max_flight_time_ticks` with an age it reached bursts it at its next tick |
-| `entity\object\FireworkRocket::getExplosions` | implemented | src/tick/entity/api.rs:1191 `firework_explosions` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::getMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:1325 `max_flight_time_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\FireworkRocket::getExplosions` | implemented | src/tick/entity/api.rs:1192 `firework_explosions` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FireworkRocket::getMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:1326 `max_flight_time_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FireworkRocket::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\FireworkRocket::setExplosions` | implemented | src/tick/entity/api.rs:429 `set_firework_explosions` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
 | `entity\object\FireworkRocket::setMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:547 `set_max_flight_time_ticks` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
 | `entity\object\ItemEntity` | implemented | src/entity.rs:55 `Item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::__construct` | merged | src/tick/entity/api.rs:1719 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `World::dropItem` |
-| `entity\object\ItemEntity::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\ItemEntity::__construct` | merged | src/tick/entity/api.rs:1720 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `World::dropItem` |
+| `entity\object\ItemEntity::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\object\ItemEntity::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\object\ItemEntity::canSaveWithChunk` | merged | src/tick/entity/api.rs:1053 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
-| `entity\object\ItemEntity::getDespawnDelay` | implemented | src/tick/entity/api.rs:1125 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getItem` | implemented | src/tick/entity/api.rs:1311 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\ItemEntity::canSaveWithChunk` | merged | src/tick/entity/api.rs:1054 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
+| `entity\object\ItemEntity::getDespawnDelay` | implemented | src/tick/entity/api.rs:1126 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getItem` | implemented | src/tick/entity/api.rs:1312 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\ItemEntity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\ItemEntity::getOwner` | implemented | src/tick/entity/api.rs:1377 `owner` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getPickupDelay` | implemented | src/tick/entity/api.rs:1431 `pickup_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getThrower` | implemented | src/tick/entity/api.rs:1541 `thrower` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::isFireProof` | merged | src/tick/entity/api.rs:1255 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\ItemEntity::getOwner` | implemented | src/tick/entity/api.rs:1378 `owner` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getPickupDelay` | implemented | src/tick/entity/api.rs:1432 `pickup_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getThrower` | implemented | src/tick/entity/api.rs:1542 `thrower` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::isFireProof` | merged | src/tick/entity/api.rs:1256 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\ItemEntity::isMergeable` | skipped |  |  | entity rule code: listeners see ItemMerge |
 | `entity\object\ItemEntity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\object\ItemEntity::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\ItemEntity::setDespawnDelay` | implemented | src/tick/entity/api.rs:377 `set_despawn_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ItemEntity::setOwner` | implemented | src/tick/entity/api.rs:621 `set_owner` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ItemEntity::setPickupDelay` | implemented | src/tick/entity/api.rs:672 `set_pickup_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ItemEntity::setStackSize` | implemented | src/tick/entity/api.rs:786 `set_stack_size` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\object\ItemEntity::setThrower` | implemented | src/tick/entity/api.rs:838 `set_thrower` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ItemEntity::setOwner` | implemented | src/tick/entity/api.rs:622 `set_owner` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ItemEntity::setPickupDelay` | implemented | src/tick/entity/api.rs:673 `set_pickup_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ItemEntity::setStackSize` | implemented | src/tick/entity/api.rs:787 `set_stack_size` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\object\ItemEntity::setThrower` | implemented | src/tick/entity/api.rs:839 `set_thrower` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\object\ItemEntity::tryMergeInto` | skipped |  |  | entity rule code: listeners see ItemMerge |
 | `entity\object\Painting` | implemented | src/entity.rs:99 `Painting` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::__construct` | implemented | src/tick/entity/api.rs:1946 `spawn_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
-| `entity\object\Painting::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\Painting::canFit` | implemented | src/tick/entity/api.rs:1598 `can_hang_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
-| `entity\object\Painting::getFacing` | implemented | src/tick/entity/api.rs:1399 `painting_facing` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::getMotive` | implemented | src/tick/entity/api.rs:1408 `painting_motive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\Painting::getPickedItem` | implemented | src/tick/entity/api.rs:1422 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\object\Painting::__construct` | implemented | src/tick/entity/api.rs:1947 `spawn_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
+| `entity\object\Painting::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\Painting::canFit` | implemented | src/tick/entity/api.rs:1599 `can_hang_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
+| `entity\object\Painting::getFacing` | implemented | src/tick/entity/api.rs:1400 `painting_facing` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\Painting::getMotive` | implemented | src/tick/entity/api.rs:1409 `painting_motive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\Painting::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\Painting::getPickedItem` | implemented | src/tick/entity/api.rs:1423 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
 | `entity\object\Painting::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\object\Painting::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\object\Painting::onRandomUpdate` | skipped |  |  | entity rule code |
@@ -5021,68 +5021,68 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\object\PrimedTNT` | implemented | src/entity.rs:64 `PrimedTnt` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\PrimedTNT::attack` | merged | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:72 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\PrimedTNT::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\object\PrimedTNT::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\object\PrimedTNT::getFuse` | implemented | src/tick/entity/api.rs:1200 `fuse_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\PrimedTNT::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\PrimedTNT::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
+| `entity\object\PrimedTNT::getFuse` | implemented | src/tick/entity/api.rs:1201 `fuse_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\PrimedTNT::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\PrimedTNT::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\PrimedTNT::getPickedItem` | implemented | src/tick/entity/api.rs:1423 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
+| `entity\object\PrimedTNT::getPickedItem` | implemented | src/tick/entity/api.rs:1424 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
 | `entity\object\PrimedTNT::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\PrimedTNT::setFuse` | implemented | src/tick/entity/api.rs:449 `set_fuse_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\PrimedTNT::setWorksUnderwater` | implemented | src/tick/entity/api.rs:858 `set_works_underwater` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\PrimedTNT::worksUnderwater` | implemented | src/tick/entity/api.rs:1556 `works_underwater` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\PrimedTNT::setWorksUnderwater` | implemented | src/tick/entity/api.rs:859 `set_works_underwater` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\PrimedTNT::worksUnderwater` | implemented | src/tick/entity/api.rs:1557 `works_underwater` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow` | implemented | src/entity.rs:67 `Arrow` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Arrow::__construct` | merged | src/tick/entity/api.rs:1973 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\Arrow::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\projectile\Arrow::getPickupMode` | implemented | src/tick/entity/api.rs:1440 `pickup_mode` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Arrow::getPunchKnockback` | implemented | src/tick/entity/api.rs:1489 `punch_knockback` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::__construct` | merged | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\Arrow::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Arrow::getPickupMode` | implemented | src/tick/entity/api.rs:1441 `pickup_mode` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::getPunchKnockback` | implemented | src/tick/entity/api.rs:1490 `punch_knockback` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
-| `entity\projectile\Arrow::isCritical` | implemented | src/tick/entity/api.rs:1249 `is_critical` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::isCritical` | implemented | src/tick/entity/api.rs:1250 `is_critical` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\projectile\Arrow::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\projectile\Arrow::setCritical` | implemented | src/tick/entity/api.rs:364 `set_critical` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\Arrow::setPickupMode` | implemented | src/tick/entity/api.rs:688 `set_pickup_mode` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\Arrow::setPunchKnockback` | implemented | src/tick/entity/api.rs:736 `set_punch_knockback` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\Arrow::setPickupMode` | implemented | src/tick/entity/api.rs:689 `set_pickup_mode` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\Arrow::setPunchKnockback` | implemented | src/tick/entity/api.rs:737 `set_punch_knockback` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\projectile\Egg` | implemented | src/entity.rs:73 `Egg` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Egg::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Egg::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\EnderPearl` | implemented | src/entity.rs:76 `EnderPearl` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\EnderPearl::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\EnderPearl::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\ExperienceBottle` | implemented | src/entity.rs:82 `XpBottle` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\ExperienceBottle::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\ExperienceBottle::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\ExperienceBottle::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\ExperienceBottle::onHit` | skipped |  |  | projectile rule code: listeners see ProjectileHitBlock and ProjectileHitEntity |
 | `entity\projectile\IceBomb` | implemented | src/entity.rs:111 `IceBomb` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\IceBomb::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\IceBomb::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\IceBomb::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
-| `entity\projectile\Projectile` | merged | src/tick/entity/api.rs:1973 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\Projectile::__construct` | implemented | src/tick/entity/api.rs:1973 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\projectile\Projectile` | merged | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\Projectile::__construct` | implemented | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\projectile\Projectile::attack` | merged | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:72 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
-| `entity\projectile\Projectile::canBeCollidedWith` | merged | src/tick/entity/api.rs:1047 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\projectile\Projectile::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\projectile\Projectile::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\projectile\Projectile::getBaseDamage` | implemented | src/tick/entity/api.rs:1028 `base_damage` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Projectile::getBaseDamage` | implemented | src/tick/entity/api.rs:1029 `base_damage` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Projectile::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\Projectile::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\projectile\Projectile::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\projectile\Projectile::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\projectile\Projectile::setBaseDamage` | implemented | src/tick/entity/api.rs:211 `set_base_damage` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\ProjectileSource` | merged | src/tick/entity/api.rs:1387 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players | into `Entity::getOwningEntity` |
+| `entity\projectile\ProjectileSource` | merged | src/tick/entity/api.rs:1388 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players | into `Entity::getOwningEntity` |
 | `entity\projectile\Snowball` | implemented | src/entity.rs:70 `Snowball` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Snowball::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Snowball::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\SplashPotion` | implemented | src/entity.rs:79 `SplashPotion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\SplashPotion::__construct` | merged | src/tick/entity/api.rs:1973 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\SplashPotion::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\projectile\SplashPotion::getPotionEffects` | implemented | src/tick/entity/api.rs:1471 `potion_effects` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::getPotionType` | implemented | src/tick/entity/api.rs:1459 `potion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\SplashPotion::__construct` | merged | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\SplashPotion::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\SplashPotion::getPotionEffects` | implemented | src/tick/entity/api.rs:1472 `potion_effects` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\projectile\SplashPotion::getPotionType` | implemented | src/tick/entity/api.rs:1460 `potion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\SplashPotion::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\SplashPotion::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\projectile\SplashPotion::setLinger` | implemented | src/tick/entity/api.rs:526 `set_lingering` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::setPotionType` | implemented | src/tick/entity/api.rs:698 `set_potion` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::willLinger` | implemented | src/tick/entity/api.rs:1274 `is_lingering` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Throwable` | merged | src/tick/entity/api.rs:1973 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\SplashPotion::setPotionType` | implemented | src/tick/entity/api.rs:699 `set_potion` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\projectile\SplashPotion::willLinger` | implemented | src/tick/entity/api.rs:1275 `is_lingering` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Throwable` | merged | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
 | `entity\projectile\Trident` | implemented | src/entity.rs:108 `Trident` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:2051 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
+| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:2052 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
 | `entity\projectile\Trident::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\projectile\Trident::getItem` | implemented | src/tick/entity/api.rs:1312 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Trident::getNetworkTypeId` | merged | src/tick/entity/api.rs:1370 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Trident::getItem` | implemented | src/tick/entity/api.rs:1313 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Trident::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\Trident::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\projectile\Trident::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\projectile\Trident::setItem` | implemented | src/tick/entity/api.rs:499 `set_item` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
@@ -5097,12 +5097,12 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `event\Cancellable` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\Cancellable::isCancelled` | implemented | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait` | merged | src/event/player.rs:384 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `CancellableTrait::cancel` |
-| `event\CancellableTrait::cancel` | implemented | src/event/player.rs:384 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait::isCancelled` | implemented | src/event/player.rs:362 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait::uncancel` | implemented | src/event/player.rs:405 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\Cancellable` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\Cancellable::isCancelled` | implemented | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait` | merged | src/event/player.rs:390 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `CancellableTrait::cancel` |
+| `event\CancellableTrait::cancel` | implemented | src/event/player.rs:390 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait::isCancelled` | implemented | src/event/player.rs:368 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait::uncancel` | implemented | src/event/player.rs:411 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
 | `event\Event` | implemented | src/event.rs:483 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `event\Event::call` | skipped |  |  | only the rule code raises events; direct API calls raise none |
 | `event\Event::getEventName` | skipped |  |  | an event is its Rust type |
@@ -5135,23 +5135,23 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\RegisteredListener::isHandlingCancelled` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\block\BlockBreakEvent` | implemented | src/event/block.rs:13 `BlockBreak` | src/event/block.rs::block_break_reads_and_changes_its_fields<br>src/tick/interact/tests/events.rs::a_block_break_listener_sees_the_break_and_sets_its_drops<br>src/tick/interact/tests/events.rs::a_cancelled_break_changes_nothing_and_resyncs_the_block<br>src/tick/interact/tests/events.rs::a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it |  |
 | `event\block\BlockBreakEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockBreakEvent::cancel` | implemented | src/event/block.rs:63 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::getDrops` | implemented | src/event/block.rs:50 `drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::getInstaBreak` | implemented | src/event/block.rs:45 `insta_break` | src/event/block.rs::block_break_reads_and_changes_its_fields<br>src/tick/interact/tests/events.rs::a_break_before_its_time_raises_no_block_break |  |
+| `event\block\BlockBreakEvent::cancel` | implemented | src/event/block.rs:68 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::getDrops` | implemented | src/event/block.rs:45 `drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::getInstaBreak` | implemented | src/event/block.rs:60 `is_insta_break` | src/event/block.rs::block_break_reads_and_changes_its_fields<br>src/tick/interact/tests/events.rs::a_break_before_its_time_raises_no_block_break |  |
 | `event\block\BlockBreakEvent::getItem` | implemented | src/event/block.rs:40 `item` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::getPlayer` | implemented | src/event/block.rs:28 `player` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::getXpDropAmount` | skipped |  |  | a broken block drops its own item and no experience: there are no vanilla drop rules |
-| `event\block\BlockBreakEvent::isCancelled` | implemented | src/event/block.rs:65 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::setDrops` | implemented | src/event/block.rs:56 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::setDropsVariadic` | implemented | src/event/block.rs:57 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::isCancelled` | implemented | src/event/block.rs:70 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::setDrops` | implemented | src/event/block.rs:51 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::setDropsVariadic` | implemented | src/event/block.rs:52 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setInstaBreak` | skipped |  |  | a break before its time is refused before the event (nothing reads the value back either) |
 | `event\block\BlockBreakEvent::setXpDropAmount` | skipped |  |  | a broken block drops its own item and no experience: there are no vanilla drop rules |
-| `event\block\BlockBreakEvent::uncancel` | implemented | src/event/block.rs:64 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
+| `event\block\BlockBreakEvent::uncancel` | implemented | src/event/block.rs:69 | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBurnEvent` | skipped |  |  | fire is removed: blocks do not burn |
 | `event\block\BlockBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockBurnEvent::cancel` | skipped |  |  | fire is removed: blocks do not burn |
 | `event\block\BlockBurnEvent::getCausingBlock` | skipped |  |  | fire is removed: blocks do not burn |
-| `event\block\BlockBurnEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockBurnEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockBurnEvent::uncancel` | skipped |  |  | fire is removed: blocks do not burn |
 | `event\block\BlockDeathEvent` | skipped |  |  | block rule code: blocks do not die by themselves |
 | `event\block\BlockEvent` | merged | src/event/block.rs:37 `block` | src/event/block.rs::block_break_reads_and_changes_its_fields | into `BlockEvent::getBlock` |
@@ -5164,7 +5164,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockExplodeEvent::getIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::getPosition` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::getYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
-| `event\block\BlockExplodeEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockExplodeEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockExplodeEvent::setAffectedBlocks` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::setIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::setYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
@@ -5186,15 +5186,15 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockItemPickupEvent::setItem` | skipped |  |  | the API table's source never raises it |
 | `event\block\BlockItemPickupEvent::uncancel` | skipped |  |  | the API table's source never raises it |
 | `event\block\BlockMeltEvent` | skipped |  |  | block rule code: blocks do not melt |
-| `event\block\BlockPlaceEvent` | implemented | src/event/block.rs:70 `BlockPlace` | src/event/block.rs::block_place_lists_every_block_it_sets<br>src/tick/interact/tests/events.rs::a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door<br>src/tick/interact/tests/events.rs::a_cancelled_placement_changes_nothing_and_resyncs<br>src/tick/interact/tests/events.rs::a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places<br>src/tick/interact/tests/events.rs::a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items<br>src/tick/interact/tests/events.rs::a_place_listener_that_ends_creative_mode_has_the_block_paid_for<br>src/tick/interact/tests/events.rs::a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement |  |
+| `event\block\BlockPlaceEvent` | implemented | src/event/block.rs:75 `BlockPlace` | src/event/block.rs::block_place_lists_every_block_it_sets<br>src/tick/interact/tests/events.rs::a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door<br>src/tick/interact/tests/events.rs::a_cancelled_placement_changes_nothing_and_resyncs<br>src/tick/interact/tests/events.rs::a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places<br>src/tick/interact/tests/events.rs::a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items<br>src/tick/interact/tests/events.rs::a_place_listener_that_ends_creative_mode_has_the_block_paid_for<br>src/tick/interact/tests/events.rs::a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement |  |
 | `event\block\BlockPlaceEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockPlaceEvent::cancel` | implemented | src/event/block.rs:100 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::getBlockAgainst` | implemented | src/event/block.rs:91 `block_against` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::getItem` | implemented | src/event/block.rs:94 `item` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::getPlayer` | implemented | src/event/block.rs:83 `player` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::getTransaction` | implemented | src/event/block.rs:88 `blocks` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::isCancelled` | implemented | src/event/block.rs:102 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPlaceEvent::uncancel` | implemented | src/event/block.rs:101 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::cancel` | implemented | src/event/block.rs:105 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::getBlockAgainst` | implemented | src/event/block.rs:96 `block_against` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::getItem` | implemented | src/event/block.rs:99 `item` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::getPlayer` | implemented | src/event/block.rs:88 `player` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::getTransaction` | implemented | src/event/block.rs:93 `blocks` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::isCancelled` | implemented | src/event/block.rs:107 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
+| `event\block\BlockPlaceEvent::uncancel` | implemented | src/event/block.rs:106 | src/event/block.rs::block_place_lists_every_block_it_sets |  |
 | `event\block\BlockPreExplodeEvent` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockPreExplodeEvent::cancel` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
@@ -5202,7 +5202,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockPreExplodeEvent::getPlayer` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::getRadius` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::isBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
-| `event\block\BlockPreExplodeEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockPreExplodeEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockPreExplodeEvent::isIncendiary` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::setBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::setFireChance` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
@@ -5216,12 +5216,12 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockTeleportEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockTeleportEvent::cancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::getTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
-| `event\block\BlockTeleportEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockTeleportEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockTeleportEvent::setTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::uncancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockUpdateEvent` | skipped |  |  | block rule code: Anchor runs no block updates |
 | `event\block\BlockUpdateEvent::cancel` | skipped |  |  | block rule code: Anchor runs no block updates |
-| `event\block\BlockUpdateEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockUpdateEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockUpdateEvent::uncancel` | skipped |  |  | block rule code: Anchor runs no block updates |
 | `event\block\BrewItemEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5231,7 +5231,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BrewItemEvent::getRecipe` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::getResult` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::getSlot` | skipped |  |  | brewing stand rule code: the stand is removed |
-| `event\block\BrewItemEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BrewItemEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BrewItemEvent::setResult` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
@@ -5239,7 +5239,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BrewingFuelUseEvent::cancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::getBrewingStand` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::getFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
-| `event\block\BrewingFuelUseEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BrewingFuelUseEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BrewingFuelUseEvent::setFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\CampfireCookEvent` | skipped |  |  | campfire rule code: a campfire cooks nothing |
@@ -5249,48 +5249,48 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\CampfireCookEvent::getInput` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::getResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::getSlot` | skipped |  |  | campfire rule code: a campfire cooks nothing |
-| `event\block\CampfireCookEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\CampfireCookEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\CampfireCookEvent::setResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::uncancel` | skipped |  |  | campfire rule code: a campfire cooks nothing |
-| `event\block\ChestPairEvent` | implemented | src/event/block.rs:107 `ChestPair` | src/event/block.rs::chest_pair_names_both_halves<br>src/tick/inventory/tests/events.rs::chest_pair_names_the_halves_and_cancelling_keeps_them_single |  |
+| `event\block\ChestPairEvent` | implemented | src/event/block.rs:112 `ChestPair` | src/event/block.rs::chest_pair_names_both_halves<br>src/tick/inventory/tests/events.rs::chest_pair_names_the_halves_and_cancelling_keeps_them_single |  |
 | `event\block\ChestPairEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\ChestPairEvent::cancel` | implemented | src/event/block.rs:129 | src/event/block.rs::chest_pair_names_both_halves |  |
-| `event\block\ChestPairEvent::getLeft` | implemented | src/event/block.rs:120 `left` | src/event/block.rs::chest_pair_names_both_halves |  |
-| `event\block\ChestPairEvent::getRight` | implemented | src/event/block.rs:123 `right` | src/event/block.rs::chest_pair_names_both_halves |  |
-| `event\block\ChestPairEvent::isCancelled` | implemented | src/event/block.rs:131 | src/event/block.rs::chest_pair_names_both_halves |  |
-| `event\block\ChestPairEvent::uncancel` | implemented | src/event/block.rs:130 | src/event/block.rs::chest_pair_names_both_halves |  |
+| `event\block\ChestPairEvent::cancel` | implemented | src/event/block.rs:134 | src/event/block.rs::chest_pair_names_both_halves |  |
+| `event\block\ChestPairEvent::getLeft` | implemented | src/event/block.rs:125 `left` | src/event/block.rs::chest_pair_names_both_halves |  |
+| `event\block\ChestPairEvent::getRight` | implemented | src/event/block.rs:128 `right` | src/event/block.rs::chest_pair_names_both_halves |  |
+| `event\block\ChestPairEvent::isCancelled` | implemented | src/event/block.rs:136 | src/event/block.rs::chest_pair_names_both_halves |  |
+| `event\block\ChestPairEvent::uncancel` | implemented | src/event/block.rs:135 | src/event/block.rs::chest_pair_names_both_halves |  |
 | `event\block\FarmlandHydrationChangeEvent` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\FarmlandHydrationChangeEvent::cancel` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::getNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::getOldHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
-| `event\block\FarmlandHydrationChangeEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\FarmlandHydrationChangeEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\FarmlandHydrationChangeEvent::setNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::uncancel` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\LeavesDecayEvent` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\LeavesDecayEvent::cancel` | skipped |  |  | block rule code: leaves do not decay |
-| `event\block\LeavesDecayEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\LeavesDecayEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\LeavesDecayEvent::uncancel` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\PressurePlateUpdateEvent` | skipped |  |  | redstone |
 | `event\block\PressurePlateUpdateEvent::__construct` | skipped |  |  | redstone |
 | `event\block\PressurePlateUpdateEvent::getActivatingEntities` | skipped |  |  | redstone |
-| `event\block\SignChangeEvent` | implemented | src/event/block.rs:135 `SignChange` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change<br>src/tick/interact/tests/events.rs::a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it |  |
+| `event\block\SignChangeEvent` | implemented | src/event/block.rs:140 `SignChange` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change<br>src/tick/interact/tests/events.rs::a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it |  |
 | `event\block\SignChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\SignChangeEvent::cancel` | implemented | src/event/block.rs:182 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::getNewText` | implemented | src/event/block.rs:164 `new_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::getOldText` | implemented | src/event/block.rs:160 `old_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::getPlayer` | implemented | src/event/block.rs:150 `player` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::getSign` | implemented | src/event/block.rs:155 `pos` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::isCancelled` | implemented | src/event/block.rs:184 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::isFrontFace` | implemented | src/event/block.rs:167 `side` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\SignChangeEvent::setNewText` | implemented | src/event/block.rs:176 `set_new_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change<br>src/tick/interact/tests/events.rs::a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it |  |
-| `event\block\SignChangeEvent::uncancel` | implemented | src/event/block.rs:183 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::cancel` | implemented | src/event/block.rs:187 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::getNewText` | implemented | src/event/block.rs:169 `new_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::getOldText` | implemented | src/event/block.rs:165 `old_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::getPlayer` | implemented | src/event/block.rs:155 `player` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::getSign` | implemented | src/event/block.rs:160 `pos` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::isCancelled` | implemented | src/event/block.rs:189 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::isFrontFace` | implemented | src/event/block.rs:172 `side` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
+| `event\block\SignChangeEvent::setNewText` | implemented | src/event/block.rs:181 `set_new_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change<br>src/tick/interact/tests/events.rs::a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it |  |
+| `event\block\SignChangeEvent::uncancel` | implemented | src/event/block.rs:188 | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
 | `event\block\StructureGrowEvent` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\StructureGrowEvent::cancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::getPlayer` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::getTransaction` | skipped |  |  | block rule code: saplings do not grow by themselves |
-| `event\block\StructureGrowEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\StructureGrowEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\StructureGrowEvent::uncancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\entity\AreaEffectCloudApplyEvent` | implemented | src/event/entity.rs:28 `AreaEffectCloudApply` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected<br>src/tick/entity/tests/events.rs::a_cancelled_cloud_application_gives_no_effects |  |
 | `event\entity\AreaEffectCloudApplyEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5302,8 +5302,8 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\entity\EntityBlockChangeEvent` | implemented | src/event/entity.rs:54 `EntityBlockChange` | src/event/entity.rs::entity_block_change_names_both_states<br>src/tick/entity/tests/events.rs::a_landing_falling_block_asks_before_it_becomes_a_block |  |
 | `event\entity\EntityBlockChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\EntityBlockChangeEvent::cancel` | implemented | src/event/entity.rs:82 | src/event/entity.rs::entity_block_change_names_both_states |  |
-| `event\entity\EntityBlockChangeEvent::getBlock` | implemented | src/event/entity.rs:73 `block` | src/event/entity.rs::entity_block_change_names_both_states |  |
-| `event\entity\EntityBlockChangeEvent::getTo` | implemented | src/event/entity.rs:76 `to` | src/event/entity.rs::entity_block_change_names_both_states |  |
+| `event\entity\EntityBlockChangeEvent::getBlock` | implemented | src/event/entity.rs:73 `old_block` | src/event/entity.rs::entity_block_change_names_both_states |  |
+| `event\entity\EntityBlockChangeEvent::getTo` | implemented | src/event/entity.rs:76 `new_block` | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `event\entity\EntityBlockChangeEvent::isCancelled` | implemented | src/event/entity.rs:84 | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `event\entity\EntityBlockChangeEvent::uncancel` | implemented | src/event/entity.rs:83 | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `event\entity\EntityCombustByBlockEvent` | implemented | src/event/entity.rs:89 `EntityCombust` | src/event/entity.rs::entity_combust_duration_can_change<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out |  |
@@ -5396,7 +5396,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\entity\EntityFrostWalkerEvent::getLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::getRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::getTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
-| `event\entity\EntityFrostWalkerEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\entity\EntityFrostWalkerEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\entity\EntityFrostWalkerEvent::setLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::setRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::setTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
@@ -5463,7 +5463,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\entity\EntityTrampleFarmlandEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\EntityTrampleFarmlandEvent::cancel` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\EntityTrampleFarmlandEvent::getBlock` | skipped |  |  | block rule code: farmland is not trampled |
-| `event\entity\EntityTrampleFarmlandEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\entity\EntityTrampleFarmlandEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\entity\EntityTrampleFarmlandEvent::uncancel` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\ItemDespawnEvent` | implemented | src/event/entity.rs:979 `ItemDespawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::a_cancelled_item_despawn_gives_the_whole_time_again |  |
 | `event\entity\ItemDespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5505,7 +5505,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\CraftItemEvent::getRecipe` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::getRepetitions` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::getTransaction` | skipped |  |  | crafting is removed: crafting requests are refused |
-| `event\inventory\CraftItemEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\CraftItemEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\CraftItemEvent::uncancel` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\FurnaceBurnEvent` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5514,7 +5514,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\FurnaceBurnEvent::getFuel` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::isBurning` | skipped |  |  | furnace rule code: furnaces are removed |
-| `event\inventory\FurnaceBurnEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\FurnaceBurnEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\FurnaceBurnEvent::setBurnTime` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::setBurning` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
@@ -5524,7 +5524,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\FurnaceSmeltEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::getResult` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::getSource` | skipped |  |  | furnace rule code: furnaces are removed |
-| `event\inventory\FurnaceSmeltEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\FurnaceSmeltEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\FurnaceSmeltEvent::setResult` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\InventoryCloseEvent` | implemented | src/event/inventory.rs:12 `InventoryClose` | src/event/inventory.rs::inventory_open_and_close_name_the_window<br>src/tick/interact/tests/events.rs::breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total<br>src/tick/inventory/tests/events.rs::windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed<br>src/tick/inventory/tests/events.rs::a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window<br>src/tick/survival/wiring.rs::a_menu_a_close_listener_opens_does_not_follow_a_teleport_to_another_world |  |
@@ -5550,7 +5550,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerBedEnterEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerBedEnterEvent::cancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedEnterEvent::getBed` | skipped |  |  | sleeping is removed: a bed click does nothing |
-| `event\player\PlayerBedEnterEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerBedEnterEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerBedEnterEvent::uncancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedLeaveEvent` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedLeaveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5570,7 +5570,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerBucketEvent::getBlockFace` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::getBucket` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::getItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
-| `event\player\PlayerBucketEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerBucketEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerBucketEvent::setItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::uncancel` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketFillEvent` | skipped |  |  | bucket use is removed: buckets do not change blocks |
@@ -5618,128 +5618,128 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerDeathEvent::getDeathMessage` | implemented | src/event/player.rs:244 `death_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change<br>src/tick/survival/wiring.rs::show_death_messages_broadcasts_the_translated_death_message |  |
 | `event\player\PlayerDeathEvent::getDeathScreenMessage` | implemented | src/event/player.rs:248 `death_screen_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `event\player\PlayerDeathEvent::getEntity` | implemented | src/event/player.rs:232 `player` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDeathEvent::getKeepInventory` | implemented | src/event/player.rs:251 `keep_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDeathEvent::getKeepXp` | implemented | src/event/player.rs:254 `keep_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
+| `event\player\PlayerDeathEvent::getKeepInventory` | implemented | src/event/player.rs:272 `keeps_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
+| `event\player\PlayerDeathEvent::getKeepXp` | implemented | src/event/player.rs:278 `keeps_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `event\player\PlayerDeathEvent::getPlayer` | implemented | src/event/player.rs:231 `player` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDeathEvent::setDeathMessage` | implemented | src/event/player.rs:262 `set_death_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change<br>src/tick/survival/wiring.rs::show_death_messages_broadcasts_the_translated_death_message |  |
-| `event\player\PlayerDeathEvent::setDeathScreenMessage` | implemented | src/event/player.rs:266 `set_death_screen_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDeathEvent::setKeepInventory` | implemented | src/event/player.rs:269 `set_keep_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDeathEvent::setKeepXp` | implemented | src/event/player.rs:272 `set_keep_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:968 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
-| `event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:968 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:995 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:981 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:985 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDeathEvent::setDeathMessage` | implemented | src/event/player.rs:256 `set_death_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change<br>src/tick/survival/wiring.rs::show_death_messages_broadcasts_the_translated_death_message |  |
+| `event\player\PlayerDeathEvent::setDeathScreenMessage` | implemented | src/event/player.rs:260 `set_death_screen_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
+| `event\player\PlayerDeathEvent::setKeepInventory` | implemented | src/event/player.rs:263 `set_keep_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
+| `event\player\PlayerDeathEvent::setKeepXp` | implemented | src/event/player.rs:266 `set_keep_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
+| `event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:974 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
+| `event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:974 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:1001 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:987 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:991 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
 | `event\player\PlayerDisplayNameChangeEvent` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `event\player\PlayerDisplayNameChangeEvent::__construct` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `event\player\PlayerDisplayNameChangeEvent::getNewName` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `event\player\PlayerDisplayNameChangeEvent::getOldName` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
-| `event\player\PlayerDropItemEvent` | implemented | src/event/player.rs:287 `PlayerDropItem` | src/event/player.rs::drop_item_names_the_item<br>src/tick/inventory/tests.rs::random_requests_with_random_listeners_keep_every_item_accounted_for<br>src/tick/inventory/tests/events.rs::drops_raise_player_drop_item_and_cancelling_keeps_the_item<br>src/tick/inventory/tests/menu.rs::a_drop_from_an_editable_slot_is_a_change_thrown_once_kept |  |
+| `event\player\PlayerDropItemEvent` | implemented | src/event/player.rs:293 `PlayerDropItem` | src/event/player.rs::drop_item_names_the_item<br>src/tick/inventory/tests.rs::random_requests_with_random_listeners_keep_every_item_accounted_for<br>src/tick/inventory/tests/events.rs::drops_raise_player_drop_item_and_cancelling_keeps_the_item<br>src/tick/inventory/tests/menu.rs::a_drop_from_an_editable_slot_is_a_change_thrown_once_kept |  |
 | `event\player\PlayerDropItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerDropItemEvent::cancel` | implemented | src/event/player.rs:305 | src/event/player.rs::drop_item_names_the_item |  |
-| `event\player\PlayerDropItemEvent::getItem` | implemented | src/event/player.rs:299 `item` | src/event/player.rs::drop_item_names_the_item |  |
-| `event\player\PlayerDropItemEvent::isCancelled` | implemented | src/event/player.rs:307 | src/event/player.rs::drop_item_names_the_item |  |
-| `event\player\PlayerDropItemEvent::uncancel` | implemented | src/event/player.rs:306 | src/event/player.rs::drop_item_names_the_item |  |
-| `event\player\PlayerDuplicateLoginEvent` | implemented | src/event/player.rs:321 `PlayerDuplicateLogin` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::duplicate_login_monitors_see_the_outcome_applied |  |
+| `event\player\PlayerDropItemEvent::cancel` | implemented | src/event/player.rs:311 | src/event/player.rs::drop_item_names_the_item |  |
+| `event\player\PlayerDropItemEvent::getItem` | implemented | src/event/player.rs:305 `item` | src/event/player.rs::drop_item_names_the_item |  |
+| `event\player\PlayerDropItemEvent::isCancelled` | implemented | src/event/player.rs:313 | src/event/player.rs::drop_item_names_the_item |  |
+| `event\player\PlayerDropItemEvent::uncancel` | implemented | src/event/player.rs:312 | src/event/player.rs::drop_item_names_the_item |  |
+| `event\player\PlayerDuplicateLoginEvent` | implemented | src/event/player.rs:327 `PlayerDuplicateLogin` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::duplicate_login_monitors_see_the_outcome_applied |  |
 | `event\player\PlayerDuplicateLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerDuplicateLoginEvent::cancel` | implemented | src/event/player.rs:383 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getConnectingSession` | implemented | src/event/player.rs:347 `connecting` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:371 `kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:377 `kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getExistingSession` | implemented | src/event/player.rs:353 `existing` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::isCancelled` | implemented | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::setDisconnectReason` | implemented | src/event/player.rs:391 `set_kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
-| `event\player\PlayerDuplicateLoginEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:398 `set_kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::a_duplicate_login_message_is_cut_to_the_text_limit |  |
-| `event\player\PlayerDuplicateLoginEvent::uncancel` | implemented | src/event/player.rs:404 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerEditBookEvent` | implemented | src/event/player.rs:446 `PlayerEditBook` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerDuplicateLoginEvent::cancel` | implemented | src/event/player.rs:389 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getConnectingSession` | implemented | src/event/player.rs:353 `connecting` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:377 `kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:383 `kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getExistingSession` | implemented | src/event/player.rs:359 `existing` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::isCancelled` | implemented | src/event/player.rs:367 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::setDisconnectReason` | implemented | src/event/player.rs:397 `set_kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
+| `event\player\PlayerDuplicateLoginEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:404 `set_kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::a_duplicate_login_message_is_cut_to_the_text_limit |  |
+| `event\player\PlayerDuplicateLoginEvent::uncancel` | implemented | src/event/player.rs:410 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerEditBookEvent` | implemented | src/event/player.rs:452 `PlayerEditBook` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `event\player\PlayerEditBookEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:496 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEditBookEvent::getAction` | implemented | src/event/player.rs:461 `action` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getModifiedPages` | implemented | src/event/player.rs:470 `modified_pages` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getNewBook` | implemented | src/event/player.rs:467 `new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getOldBook` | implemented | src/event/player.rs:464 `old_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:498 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEditBookEvent::setNewBook` | implemented | src/event/player.rs:477 `set_new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:497 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEmoteEvent` | implemented | src/event/player.rs:522 `PlayerEmote` | src/event/player.rs::emote_can_change<br>src/tick/survival/wiring.rs::emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow |  |
+| `event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:502 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEditBookEvent::getAction` | implemented | src/event/player.rs:467 `action` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getModifiedPages` | implemented | src/event/player.rs:476 `modified_pages` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getNewBook` | implemented | src/event/player.rs:473 `new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getOldBook` | implemented | src/event/player.rs:470 `old_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:504 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEditBookEvent::setNewBook` | implemented | src/event/player.rs:483 `set_new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:503 | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEmoteEvent` | implemented | src/event/player.rs:528 `PlayerEmote` | src/event/player.rs::emote_can_change<br>src/tick/survival/wiring.rs::emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow |  |
 | `event\player\PlayerEmoteEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:547 | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::getEmoteId` | implemented | src/event/player.rs:534 `emote_id` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:549 | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:541 `set_emote_id` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:548 | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:553 | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::getEmoteId` | implemented | src/event/player.rs:540 `emote_id` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:555 | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:547 `set_emote_id` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:554 | src/event/player.rs::emote_can_change |  |
 | `event\player\PlayerEnchantingOptionsRequestEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerEnchantingOptionsRequestEvent::cancel` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::getInventory` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::getOptions` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerEnchantingOptionsRequestEvent::setOptions` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:559 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
+| `event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:565 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
 | `event\player\PlayerEntityInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:581 | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::getClickPosition` | implemented | src/event/player.rs:575 `click_position` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::getEntity` | implemented | src/event/player.rs:572 `entity` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:583 | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:582 | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityPickEvent` | implemented | src/event/player.rs:589 `PlayerEntityPick` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::creative_players_get_the_entity_item_and_others_only_select_one_they_carry<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:587 | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::getClickPosition` | implemented | src/event/player.rs:581 `click_position` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::getEntity` | implemented | src/event/player.rs:578 `entity` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:589 | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:588 | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityPickEvent` | implemented | src/event/player.rs:595 `PlayerEntityPick` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::creative_players_get_the_entity_item_and_others_only_select_one_they_carry<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
 | `event\player\PlayerEntityPickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:611 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::getEntity` | implemented | src/event/player.rs:602 `entity` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::getResultItem` | implemented | src/event/player.rs:605 `result_item` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:613 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:612 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEvent` | merged | src/event/player.rs:925 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
-| `event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:925 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerExhaustEvent` | implemented | src/event/player.rs:618 `PlayerExhaust` | src/event/player.rs::exhaust_amount_can_change<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/survival/wiring.rs::exhaust_listeners_change_or_cancel_the_exhaustion |  |
+| `event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:617 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::getEntity` | implemented | src/event/player.rs:608 `entity` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::getResultItem` | implemented | src/event/player.rs:611 `result_item` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:619 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:618 | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEvent` | merged | src/event/player.rs:931 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
+| `event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:931 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerExhaustEvent` | implemented | src/event/player.rs:624 `PlayerExhaust` | src/event/player.rs::exhaust_amount_can_change<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/survival/wiring.rs::exhaust_listeners_change_or_cancel_the_exhaustion |  |
 | `event\player\PlayerExhaustEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:649 | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getAmount` | implemented | src/event/player.rs:632 `amount` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getCause` | implemented | src/event/player.rs:635 `cause` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getPlayer` | implemented | src/event/player.rs:629 `player` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:651 | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::setAmount` | implemented | src/event/player.rs:641 `set_amount` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:650 | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExperienceChangeEvent` | implemented | src/event/player.rs:1670 `PlayerXpChange` | src/event/player.rs::xp_change_keeps_progress_in_range<br>src/tick/survival/wiring.rs::xp_listeners_choose_the_level_or_cancel_the_gain |  |
+| `event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:655 | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getAmount` | implemented | src/event/player.rs:638 `amount` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getCause` | implemented | src/event/player.rs:641 `cause` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getPlayer` | implemented | src/event/player.rs:635 `player` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:657 | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::setAmount` | implemented | src/event/player.rs:647 `set_amount` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:656 | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExperienceChangeEvent` | implemented | src/event/player.rs:1676 `PlayerXpChange` | src/event/player.rs::xp_change_keeps_progress_in_range<br>src/tick/survival/wiring.rs::xp_listeners_choose_the_level_or_cancel_the_gain |  |
 | `event\player\PlayerExperienceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:1719 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getNewLevel` | implemented | src/event/player.rs:1691 `new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getNewProgress` | implemented | src/event/player.rs:1694 `new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getOldLevel` | implemented | src/event/player.rs:1685 `old_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getOldProgress` | implemented | src/event/player.rs:1688 `old_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:1721 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::setNewLevel` | implemented | src/event/player.rs:1700 `set_new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::setNewProgress` | implemented | src/event/player.rs:1707 `set_new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:1720 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerGameModeChangeEvent` | implemented | src/event/player.rs:688 `PlayerGameModeChange` | src/event/player.rs::game_mode_change_names_the_new_mode<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
+| `event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:1725 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getNewLevel` | implemented | src/event/player.rs:1697 `new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getNewProgress` | implemented | src/event/player.rs:1700 `new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getOldLevel` | implemented | src/event/player.rs:1691 `old_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getOldProgress` | implemented | src/event/player.rs:1694 `old_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:1727 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::setNewLevel` | implemented | src/event/player.rs:1706 `set_new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::setNewProgress` | implemented | src/event/player.rs:1713 `set_new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:1726 | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerGameModeChangeEvent` | implemented | src/event/player.rs:694 `PlayerGameModeChange` | src/event/player.rs::game_mode_change_names_the_new_mode<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `event\player\PlayerGameModeChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:706 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::getNewGamemode` | implemented | src/event/player.rs:700 `new_game_mode` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:708 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:707 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerInteractEvent` | implemented | src/event/player.rs:721 `PlayerInteract` | src/event/player.rs::interact_can_stop_the_item_or_the_block<br>src/tick/interact/tests/events.rs::a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting<br>src/tick/interact/tests/events.rs::a_cancelled_right_click_uses_neither_the_block_nor_the_item<br>src/tick/interact/tests/events.rs::a_cancelled_left_click_starts_no_breaking<br>src/tick/interact/tests/events.rs::the_click_event_is_raised_for_a_click_on_a_removed_block<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items |  |
+| `event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:712 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::getNewGamemode` | implemented | src/event/player.rs:706 `new_game_mode` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:714 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:713 | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerInteractEvent` | implemented | src/event/player.rs:727 `PlayerInteract` | src/event/player.rs::interact_can_stop_the_item_or_the_block<br>src/tick/interact/tests/events.rs::a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting<br>src/tick/interact/tests/events.rs::a_cancelled_right_click_uses_neither_the_block_nor_the_item<br>src/tick/interact/tests/events.rs::a_cancelled_left_click_starts_no_breaking<br>src/tick/interact/tests/events.rs::the_click_event_is_raised_for_a_click_on_a_removed_block<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items |  |
 | `event\player\PlayerInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:801 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getAction` | implemented | src/event/player.rs:758 `action` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getBlock` | implemented | src/event/player.rs:746 `block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getFace` | implemented | src/event/player.rs:749 `face` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getItem` | implemented | src/event/player.rs:752 `item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getTouchVector` | implemented | src/event/player.rs:755 `touch_vector` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:803 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::setUseBlock` | implemented | src/event/player.rs:767 `set_use_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::setUseItem` | implemented | src/event/player.rs:764 `set_use_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:802 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::useBlock` | implemented | src/event/player.rs:784 `uses_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::useItem` | implemented | src/event/player.rs:793 `uses_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerItemConsumeEvent` | implemented | src/event/player.rs:819 `PlayerItemConsume` | src/event/player.rs::item_consume_residue_can_change<br>src/tick/survival/wiring.rs::consume_listeners_cancel_the_meal_or_replace_its_residue |  |
+| `event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:807 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getAction` | implemented | src/event/player.rs:764 `action` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getBlock` | implemented | src/event/player.rs:752 `block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getFace` | implemented | src/event/player.rs:755 `face` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getItem` | implemented | src/event/player.rs:758 `item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getTouchVector` | implemented | src/event/player.rs:761 `touch_vector` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:809 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::setUseBlock` | implemented | src/event/player.rs:773 `set_use_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::setUseItem` | implemented | src/event/player.rs:770 `set_use_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:808 | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::useBlock` | implemented | src/event/player.rs:790 `uses_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::useItem` | implemented | src/event/player.rs:799 `uses_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerItemConsumeEvent` | implemented | src/event/player.rs:825 `PlayerItemConsume` | src/event/player.rs::item_consume_residue_can_change<br>src/tick/survival/wiring.rs::consume_listeners_cancel_the_meal_or_replace_its_residue |  |
 | `event\player\PlayerItemConsumeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:851 | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::getItem` | implemented | src/event/player.rs:832 `item` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::getResidue` | implemented | src/event/player.rs:835 `residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:853 | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:843 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:852 | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:857 | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::getItem` | implemented | src/event/player.rs:838 `item` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::getResidue` | implemented | src/event/player.rs:841 `residue` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:859 | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:849 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:858 | src/event/player.rs::item_consume_residue_can_change |  |
 | `event\player\PlayerItemEnchantEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerItemEnchantEvent::cancel` | skipped |  |  | the enchanting table is removed |
@@ -5748,85 +5748,85 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerItemEnchantEvent::getOption` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::getOutputItem` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::getTransaction` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerItemEnchantEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerItemEnchantEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerItemEnchantEvent::uncancel` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:857 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
+| `event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:863 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
 | `event\player\PlayerItemHeldEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:879 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::getItem` | implemented | src/event/player.rs:870 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::getSlot` | implemented | src/event/player.rs:873 `slot` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:881 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:880 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:888 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in_hand |  |
+| `event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:885 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::getItem` | implemented | src/event/player.rs:876 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::getSlot` | implemented | src/event/player.rs:879 `slot` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:887 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:886 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:894 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in_hand |  |
 | `event\player\PlayerItemUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:910 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:904 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:901 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:912 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:911 | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:916 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_the_official_server_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
+| `event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:916 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:910 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:907 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:918 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:917 | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:922 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_the_official_server_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
 | `event\player\PlayerJoinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:929 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:935 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerJumpEvent` | implemented | src/event/player.rs:940 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:935 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:941 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerJumpEvent` | implemented | src/event/player.rs:946 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerJumpEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerKickEvent` | implemented | src/event/player.rs:953 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `event\player\PlayerKickEvent` | implemented | src/event/player.rs:959 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `event\player\PlayerKickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1003 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:967 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:994 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:973 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1005 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:980 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:984 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:988 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1004 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1017 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
+| `event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1009 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:973 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1000 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:979 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1011 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:986 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:990 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:994 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1010 | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1023 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
 | `event\player\PlayerLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1115 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
-| `event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1038 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
-| `event\player\PlayerLoginEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1115 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
-| `event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1102 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
-| `event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1218 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1121 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
+| `event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1044 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
+| `event\player\PlayerLoginEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1121 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
+| `event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1108 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
+| `event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1224 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerMissSwingEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1232 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1234 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1233 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1243 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
+| `event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1238 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1240 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1239 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1249 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
 | `event\player\PlayerMoveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1277 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1256 `origin` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1259 `target` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1279 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1267 `set_target` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::a_move_sent_past_the_world_border_sends_the_player_back |  |
-| `event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1278 | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1288 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1283 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1262 `origin` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1265 `target` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1285 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1273 `set_target` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::a_move_sent_past_the_world_border_sends_the_player_back |  |
+| `event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1284 | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1294 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
 | `event\player\PlayerPostChunkSendEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1299 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1300 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1016 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_login_before_the_player_joins |  |
+| `event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1305 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1306 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1022 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_login_before_the_player_joins |  |
 | `event\player\PlayerPreLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1102 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1108 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1083 `kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1089 `kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1028 `final_kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1038 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1055 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1073 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1048 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1096 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1061 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1108 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1114 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1089 `kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1095 `kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1034 `final_kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1044 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1061 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1079 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1054 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1102 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1067 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `event\player\PlayerPreLoginEvent::isAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1067 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1073 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `event\player\PlayerPreLoginEvent::setAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1115 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit |  |
-| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1311 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_the_translated_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1121 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit |  |
+| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1317 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_the_translated_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `event\player\PlayerQuitEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1325 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1329 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
-| `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1335 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1331 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1335 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
+| `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1341 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
@@ -5841,59 +5841,59 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerRespawnAnchorUseEvent::cancel` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::getAction` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::getBlock` | skipped |  |  | a respawn anchor click is removed |
-| `event\player\PlayerRespawnAnchorUseEvent::isCancelled` | merged | src/event/player.rs:363 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerRespawnAnchorUseEvent::isCancelled` | merged | src/event/player.rs:369 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerRespawnAnchorUseEvent::setAction` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::uncancel` | skipped |  |  | a respawn anchor click is removed |
-| `event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1386 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::respawn_monitors_see_the_place_used_not_an_ignored_one |  |
+| `event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1392 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::respawn_monitors_see_the_place_used_not_an_ignored_one |  |
 | `event\player\PlayerRespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1400 `position` | src/event/player.rs::respawn_position_can_change |  |
-| `event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1410 `set_position` | src/event/player.rs::respawn_position_can_change |  |
-| `event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1421 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1406 `position` | src/event/player.rs::respawn_position_can_change |  |
+| `event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1416 `set_position` | src/event/player.rs::respawn_position_can_change |  |
+| `event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1427 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleFlightEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1444 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1446 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1436 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1445 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1450 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1450 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1452 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1442 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1451 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1456 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleGlideEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1473 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1475 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1465 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1474 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1479 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1479 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1481 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1471 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1480 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1485 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSneakEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1510 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1512 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1496 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1502 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1511 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1516 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1516 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1518 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1502 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1508 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1517 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1522 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSprintEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1539 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1541 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1531 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1540 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1545 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1545 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1547 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1537 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1546 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1551 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSwimEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1568 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1570 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1560 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1569 | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1576 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1574 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1576 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1566 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1575 | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1582 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `event\player\PlayerTransferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1614 | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1590 `address` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1596 `message` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1593 `port` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1616 | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1602 `set_address` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1608 `set_message` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1605 `set_port` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1615 | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1620 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
+| `event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1620 | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1596 `address` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1602 `message` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1599 `port` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1622 | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1608 `set_address` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1614 `set_message` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1611 `set_port` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1621 | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1626 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
 | `event\player\PlayerViewDistanceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1635 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
-| `event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1632 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1641 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1638 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
 | `event\plugin\PluginDisableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `event\plugin\PluginEnableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `event\plugin\PluginEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -5954,7 +5954,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | the API table's update checker |
 | `event\world\ChunkEvent` | merged | src/event/world.rs:30 `chunk` | src/event/world.rs::chunk_events_name_the_chunk | into `ChunkEvent::getChunkX` |
 | `event\world\ChunkEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\world\ChunkEvent::getChunk` | merged | src/world.rs:719 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `event\world\ChunkEvent::getChunk` | merged | src/world.rs:742 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `event\world\ChunkEvent::getChunkX` | implemented | src/event/world.rs:30 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `event\world\ChunkEvent::getChunkZ` | implemented | src/event/world.rs:31 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `event\world\ChunkLoadEvent` | implemented | src/event/world.rs:17 `ChunkLoad` | src/event/world.rs::chunk_events_name_the_chunk<br>src/tick/view.rs::chunk_loads_name_new_and_restored_chunks_once<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
@@ -6211,8 +6211,8 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\transaction\action\InventoryAction` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\action\InventoryAction::__construct` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\action\InventoryAction::execute` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
-| `inventory\transaction\action\InventoryAction::getSourceItem` | implemented | src/event/inventory.rs:116 `before` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
-| `inventory\transaction\action\InventoryAction::getTargetItem` | implemented | src/event/inventory.rs:119 `after` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
+| `inventory\transaction\action\InventoryAction::getSourceItem` | implemented | src/event/inventory.rs:116 `old_item` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
+| `inventory\transaction\action\InventoryAction::getTargetItem` | implemented | src/event/inventory.rs:119 `new_item` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
 | `inventory\transaction\action\InventoryAction::onAddToTransaction` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\action\InventoryAction::onPreExecute` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\action\InventoryAction::validate` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
@@ -6313,7 +6313,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\Bow::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\Bow::getMaxDurability` | merged | src/item.rs:400 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4198 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
+| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4210 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
 | `item\Bowl` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bowl::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\Bread` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6686,13 +6686,13 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\PotionType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `item\PotionType::getDisplayName` | implemented | src/effect.rs:365 `display_name` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
-| `item\PotionType::getEffects` | implemented | src/effect.rs:375 `effects` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `item\PotionType::getDisplayName` | implemented | src/effect.rs:366 `display_name` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `item\PotionType::getEffects` | implemented | src/effect.rs:376 `effects` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `item\PotionType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\ProjectileItem` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ProjectileItem::getThrowForce` | implemented | src/item.rs:503 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
-| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4190 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
+| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4202 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
 | `item\Pufferfish` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:884 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Pufferfish::getFoodRestore` | merged | src/item.rs:859 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
@@ -7346,14 +7346,14 @@ implemented 0, differs 0, merged 8, skipped 10, blank 0 (of 18 rows)
 | `lang\Language::translate` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\Language::translateString` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\LanguageNotFoundException` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `lang\Translatable` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::__construct` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::format` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameter` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameters` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getText` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::postfix` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::prefix` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::__construct` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::format` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameter` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameters` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getText` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::postfix` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::prefix` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
 
 ## `network`
 
@@ -7384,7 +7384,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\FilterNoisyPacketException` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network` | skipped |  |  | the network object: its server name, blocks and connection counts are `Context` methods (`set_motd`, `block_address`, `connection_count`); interfaces, bandwidth and raw packets are internal |
 | `network\Network::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::blockAddress` | differs | src/tick/task.rs:291 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; the API table's source takes a timeout of 0 or less); a new block replaces the old end (the API table's source keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; the number of blocked addresses at once is bounded |
+| `network\Network::blockAddress` | differs | src/tick/task.rs:292 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; the API table's source takes a timeout of 0 or less); a new block replaces the old end (the API table's source keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; the number of blocked addresses at once is bounded |
 | `network\Network::getBandwidthTracker` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::getConnectionCount` | differs | src/tick/task.rs:83 `connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
 | `network\Network::getInterfaces` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7395,12 +7395,12 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\Network::registerInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::registerRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::sendPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::setName` | implemented | src/tick/task.rs:355 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::setName` | implemented | src/tick/task.rs:356 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::unblockAddress` | implemented | src/tick/task.rs:397 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::unblockAddress` | implemented | src/tick/task.rs:398 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::unregisterInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::unregisterRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::updateName` | implemented | src/tick/task.rs:356 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::updateName` | implemented | src/tick/task.rs:357 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\NetworkInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::setName` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::shutdown` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7493,9 +7493,9 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkBroadcastUtils::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:537 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:594 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::disconnectIncompatibleProtocol` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:537 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:594 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::getBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getCompressor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:304 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
@@ -7506,7 +7506,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:402 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick at a fixed interval when it changed, as a logged input; `None` until one was measured |
 | `network\mcpe\NetworkSession::getPlayer` | skipped |  |  | the session is the player: `Context::player` |
-| `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1199 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
+| `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1205 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:419 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `network\mcpe\NetworkSession::getTypeConverter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleAckReceipt` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7514,31 +7514,31 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::handleEncoded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:373 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
 | `network\mcpe\NetworkSession::notifyTerrainReady` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:593 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
-| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:596 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
+| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:622 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
+| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:625 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
 | `network\mcpe\NetworkSession::onClientDisconnect` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onCloseAllForms` | merged | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them | into `Player::closeAllForms` |
 | `network\mcpe\NetworkSession::onEnterWorld` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
 | `network\mcpe\NetworkSession::onItemCooldownChanged` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:592 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
+| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:621 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
 | `network\mcpe\NetworkSession::onOpenSignEditor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerAdded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerDestroyed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerRemoved` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:591 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
-| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:597 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
+| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:620 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
+| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:626 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
 | `network\mcpe\NetworkSession::onServerDeath` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onServerRespawn` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:595 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
-| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:590 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
-| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:594 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
-| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:598 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
-| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:599 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
+| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:624 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
+| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:619 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
+| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:623 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
+| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:627 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
+| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:628 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:994 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:1047 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7556,7 +7556,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::syncWorldSpawnPoint` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::syncWorldTime` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:671 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
+| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:677 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
 | `network\mcpe\PacketBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketBroadcaster::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketRateLimiter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8269,17 +8269,17 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getName` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `player\Player` | implemented | src/tick.rs:915 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player` | implemented | src/tick.rs:968 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1583 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
+| `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1584 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:22 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
-| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4251 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
+| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4263 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:45 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
-| `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1799 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
-| `player\Player::broadcastSound` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1800 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
+| `player\Player::broadcastSound` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `player\Player::canBeCollidedWith` | skipped |  |  | player rule code |
 | `player\Player::canBeMovedByCurrents` | skipped |  |  | player rule code |
 | `player\Player::canBeRenamed` | skipped |  |  | player rule code |
@@ -8288,16 +8288,16 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::canEat` | skipped |  |  | food rule code |
 | `player\Player::canInteract` | implemented | src/tick/survival/api.rs:313 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
-| `player\Player::canSee` | implemented | src/tick/entity/api.rs:1612 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `player\Player::changeSkin` | merged | src/tick/survival/api.rs:1379 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
+| `player\Player::canSee` | implemented | src/tick/entity/api.rs:1613 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::changeSkin` | merged | src/tick/survival/api.rs:1380 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
 | `player\Player::chat` | implemented | src/action/survival.rs:14 `Chat` | src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `player\Player::closeAllForms` | implemented | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `player\Player::continueBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `player\Player::disconnect` | implemented | src/tick/player.rs:537 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::disconnect` | implemented | src/tick/player.rs:594 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
-| `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1597 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1598 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `player\Player::emote` | skipped |  |  | player rule code: listeners see PlayerEmote |
 | `player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:305 `can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getCraftingGrid` | skipped |  |  | crafting is removed: there is no crafting grid |
@@ -8312,16 +8312,16 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:385 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:559 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:439 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1532 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1539 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1533 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1540 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `player\Player::getLastPlayed` | differs | src/tick/player.rs:380 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `player\Player::getLeaveMessage` | merged | src/event/player.rs:1325 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
+| `player\Player::getLeaveMessage` | merged | src/event/player.rs:1331 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
 | `player\Player::getLocale` | implemented | src/tick/player.rs:387 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `player\Player::getName` | implemented | src/tick/player.rs:394 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
 | `player\Player::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `player\Player::getPlayerInfo` | merged | src/event/player.rs:1199 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
+| `player\Player::getPlayerInfo` | merged | src/event/player.rs:1205 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
 | `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:443 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
@@ -8336,14 +8336,14 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:397 `has_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:403 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:415 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
-| `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1507 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1508 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::hasPermission` | implemented | src/tick/command.rs:660 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:335 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:653 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1774 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1775 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::interactBlock` | implemented | src/action/interact.rs:116 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
-| `player\Player::interactEntity` | implemented | src/action/interact.rs:68 `InteractEntity`<br>src/tick/entity.rs:4259 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::interactEntity` | implemented | src/action/interact.rs:68 `InteractEntity`<br>src/tick/entity.rs:4271 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:445 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isAuthenticated` | implemented | src/tick/player.rs:365 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::isConnected` | implemented | src/tick/player.rs:373 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
@@ -8359,7 +8359,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:571 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
-| `player\Player::kick` | implemented | src/action/survival.rs:93 `Kick`<br>src/tick/player.rs:536 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `player\Player::kick` | implemented | src/action/survival.rs:93 `Kick`<br>src/tick/player.rs:593 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `player\Player::missSwing` | skipped |  |  | player rule code: listeners see PlayerMissSwing |
 | `player\Player::onBlockChanged` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkChanged` | skipped |  |  | chunk sending is the engine's |
@@ -8375,24 +8375,24 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::releaseHeldItem` | merged | src/action/interact.rs:96 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
 | `player\Player::removeAttachment` | merged | src/tick/command.rs:1148 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:199 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `player\Player::removeTitles` | implemented | src/tick/player.rs:596 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::removeTitles` | implemented | src/tick/player.rs:625 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1112 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1619 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::resetTitles` | implemented | src/tick/player.rs:597 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1620 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::resetTitles` | implemented | src/tick/player.rs:626 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::respawn` | implemented | src/tick/survival/api.rs:836 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `player\Player::save` | skipped |  |  | player records commit with the world |
 | `player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:89 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
-| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:593 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:622 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
 | `player\Player::sendForm` | implemented | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
-| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:592 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendMessage` | implemented | src/tick/player.rs:589 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendPopup` | implemented | src/tick/player.rs:591 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:621 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendMessage` | implemented | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendPopup` | implemented | src/tick/player.rs:620 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
-| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:595 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTip` | implemented | src/tick/player.rs:590 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTitle` | implemented | src/tick/player.rs:594 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:599 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:624 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTip` | implemented | src/tick/player.rs:619 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTitle` | implemented | src/tick/player.rs:623 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:628 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:939 `set_can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:884 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setBasePermission` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
@@ -8400,30 +8400,30 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:222 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:212 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:973 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `player\Player::setDisplayName` | implemented | src/tick/player.rs:613 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
+| `player\Player::setDisplayName` | implemented | src/tick/player.rs:642 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
 | `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1037 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1100 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setGamemode` | implemented | src/action/survival.rs:153 `SetGameMode`<br>src/tick/survival/api.rs:1076 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:895 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1256 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:626 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:655 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
-| `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1408 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:598 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1409 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:627 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:424 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
-| `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1819 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1820 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::sleepOn` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\Player::stopSleep` | skipped |  |  | sleeping is removed: a bed click does nothing |
-| `player\Player::teleport` | implemented | src/action/survival.rs:180 `Teleport`<br>src/tick/player.rs:836 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
+| `player\Player::teleport` | implemented | src/action/survival.rs:180 `Teleport`<br>src/tick/player.rs:842 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
 | `player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSneak` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
-| `player\Player::transfer` | implemented | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:671 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `player\Player::transfer` | implemented | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:677 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `player\Player::unsetBasePermission` | merged | src/tick/command.rs:1148 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::useHeldItem` | implemented | src/action/interact.rs:96 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
@@ -8432,13 +8432,13 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\PlayerDataProvider::loadData` | skipped |  |  | the API table's player .dat files: Anchor keeps players in redb |
 | `player\PlayerDataProvider::saveData` | skipped |  |  | the API table's player .dat files: Anchor keeps players in redb |
 | `player\PlayerDataSaveException` | skipped |  |  | player records commit with the world |
-| `player\PlayerInfo` | implemented | src/event/player.rs:1193 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo` | implemented | src/event/player.rs:1199 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::__construct` | skipped |  |  | login makes it |
 | `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:279 `client_random_id`<br>src/tick/player.rs:285 `device_id`<br>src/tick/player.rs:291 `device_model`<br>src/tick/player.rs:297 `device_os`<br>src/tick/player.rs:322 `game_version`<br>src/tick/player.rs:352 `input_mode`<br>src/tick/player.rs:412 `playfab_id`<br>src/tick/player.rs:450 `self_signed_id`<br>src/tick/player.rs:457 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
 | `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:388 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:463 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
-| `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1199 `name` | src/event/player.rs::player_info_reads_the_identity |  |
-| `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1205 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1205 `name` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1211 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\SurvivalBlockBreakHandler` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\SurvivalBlockBreakHandler::__construct` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\SurvivalBlockBreakHandler::__destruct` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -8455,9 +8455,9 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\UsedChunkStatus::getAll` | skipped |  |  | chunk sending is the engine's |
 | `player\UsedChunkStatus::id` | skipped |  |  | chunk sending is the engine's |
 | `player\UsedChunkStatus::name` | skipped |  |  | chunk sending is the engine's |
-| `player\XboxLivePlayerInfo` | merged | src/event/player.rs:1211 `xuid` | src/event/player.rs::player_info_reads_the_identity | into `XboxLivePlayerInfo::getXuid` |
+| `player\XboxLivePlayerInfo` | merged | src/event/player.rs:1217 `xuid` | src/event/player.rs::player_info_reads_the_identity | into `XboxLivePlayerInfo::getXuid` |
 | `player\XboxLivePlayerInfo::__construct` | skipped |  |  | login makes it |
-| `player\XboxLivePlayerInfo::getXuid` | implemented | src/event/player.rs:1211 `xuid` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\XboxLivePlayerInfo::getXuid` | implemented | src/event/player.rs:1217 `xuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\XboxLivePlayerInfo::withoutXboxData` | skipped |  |  | login makes it |
 | `player\chat\ChatFormatter` | skipped |  |  | the API table's chat formatters: listeners change the format in PlayerChat |
 | `player\chat\ChatFormatter::format` | skipped |  |  | the API table's chat formatters: listeners change the format in PlayerChat |
@@ -8699,10 +8699,10 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
 | `Server::addOp` | implemented | src/tick/command.rs:919 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
 | `Server::addWhitelist` | implemented | src/tick/command.rs:786 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `Server::broadcastMessage` | implemented | src/tick/task.rs:305 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastPopup` | implemented | src/tick/task.rs:307 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastTip` | implemented | src/tick/task.rs:306 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastTitle` | implemented | src/tick/task.rs:308 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastMessage` | implemented | src/tick/task.rs:306 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastPopup` | implemented | src/tick/task.rs:308 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastTip` | implemented | src/tick/task.rs:307 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastTitle` | implemented | src/tick/task.rs:309 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::crashDump` | skipped |  |  | the API table's crash dumps: Anchor keeps the input log instead |
 | `Server::createPlayer` | skipped |  |  | players join through the login flow |
 | `Server::dispatchCommand` | implemented | src/tick/command.rs:903 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
@@ -8711,7 +8711,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::forceShutdown` | merged | src/server.rs:800 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `Server::getAllowedViewDistance` | merged | src/tick/task.rs:239 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `Server::getAsyncPool` | merged | src/tick/task/job.rs:176 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `Server::getAsyncPool` | merged | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `Server::getBroadcastChannelSubscribers` | skipped |  |  | the API table's broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::getCommandAliases` | skipped |  |  | the API table's config file command aliases: aliases are given in code (`Command::alias`) |
 | `Server::getCommandMap` | merged | src/tick/command.rs:608 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::getCommand` |
@@ -8736,7 +8736,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getNameBans` | implemented | src/tick/command.rs:592 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getNetwork` | skipped |  |  | protocol internals |
 | `Server::getOfflinePlayer` | skipped |  |  | the API table's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
-| `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:280 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
+| `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:281 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `Server::getOnlineMode` | implemented | src/config.rs:615 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getOnlinePlayers` | implemented | src/tick/task.rs:210 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_in_the_game |  |
 | `Server::getOps` | implemented | src/tick/command.rs:731 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
@@ -8765,8 +8765,8 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getVersion` | implemented | src/tick/task.rs:58 `GAME_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getViewDistance` | implemented | src/tick/task.rs:239 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getWhitelisted` | implemented | src/tick/command.rs:773 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `Server::getWorldManager` | merged | src/tick/world_api.rs:71 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
-| `Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:280 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
+| `Server::getWorldManager` | merged | src/tick/world_api.rs:75 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
+| `Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:281 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
 | `Server::hasWhitelist` | implemented | src/tick/command.rs:718 `is_whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::isHardcore` | implemented | src/tick/task.rs:115 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
@@ -8777,7 +8777,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::removeOp` | implemented | src/tick/command.rs:877 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
 | `Server::removeWhitelist` | implemented | src/tick/command.rs:932 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::requiresAuthentication` | implemented | src/config.rs:616 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:321 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
+| `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:322 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `Server::sendUsage` | skipped |  |  | the API table's usage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:121 `is_player_data_saved` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::shutdown` | implemented | src/server.rs:800 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
@@ -8821,24 +8821,24 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\AsyncPool::selectWorker` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdown` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdownUnusedWorkers` | skipped |  |  | the blocking pool is internal and bounded |
-| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:176 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:176 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
-| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `scheduler\AsyncTask::cancelRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::hasCancelledRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::isSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::onProgressUpdate` | skipped |  |  | async work reports once: its result is the next tick's input |
-| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::publishProgress` | skipped |  |  | async work reports once: its result is the next tick's input |
 | `scheduler\AsyncTask::run` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
+| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
 | `scheduler\AsyncTask::setSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
 | `scheduler\AsyncWorker` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
 | `scheduler\AsyncWorker::__construct` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
@@ -8861,42 +8861,42 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\BulkCurlTaskOperation::getPage` | skipped |  |  | PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `scheduler\BulkCurlTaskOperation::getTimeout` | skipped |  |  | PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `scheduler\CancelTaskException` | skipped |  |  | PHP exception: a repeating closure cancels itself with `Context::cancel_task(cx.current_task())` |
-| `scheduler\ClosureTask` | implemented | src/tick/task/schedule.rs:244 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
-| `scheduler\ClosureTask::__construct` | merged | src/tick/task/schedule.rs:244 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\ClosureTask` | implemented | src/tick/task/schedule.rs:245 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\ClosureTask::__construct` | merged | src/tick/task/schedule.rs:245 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
 | `scheduler\ClosureTask::getName` | skipped |  |  | a scheduled closure has no name |
-| `scheduler\ClosureTask::onRun` | merged | src/tick/task/schedule.rs:244 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\ClosureTask::onRun` | merged | src/tick/task/schedule.rs:245 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
 | `scheduler\DumpWorkerMemoryTask` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\DumpWorkerMemoryTask::__construct` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\DumpWorkerMemoryTask::onRun` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\GarbageCollectionTask` | skipped |  |  | PHP garbage collector control |
 | `scheduler\GarbageCollectionTask::onRun` | skipped |  |  | PHP garbage collector control |
-| `scheduler\Task` | merged | src/tick/task/schedule.rs:189 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
-| `scheduler\Task::getHandler` | implemented | src/tick/task/schedule.rs:189 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\Task` | merged | src/tick/task/schedule.rs:190 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
+| `scheduler\Task::getHandler` | implemented | src/tick/task/schedule.rs:190 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
 | `scheduler\Task::getName` | skipped |  |  | a scheduled closure has no name |
 | `scheduler\Task::onCancel` | skipped |  |  | a scheduled closure has no cancel hook: the code that cancels it (`Context::cancel_task`) does what follows |
-| `scheduler\Task::onRun` | merged | src/tick/task/schedule.rs:244 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
-| `scheduler\Task::setHandler` | merged | src/tick/task/schedule.rs:189 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
+| `scheduler\Task::onRun` | merged | src/tick/task/schedule.rs:245 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\Task::setHandler` | merged | src/tick/task/schedule.rs:190 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
 | `scheduler\TaskHandler` | implemented | src/task.rs:33 `Handle` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
 | `scheduler\TaskHandler::__construct` | skipped |  |  | handles are made by `Context::schedule*` |
-| `scheduler\TaskHandler::cancel` | implemented | src/tick/task/schedule.rs:230 `cancel_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
-| `scheduler\TaskHandler::getDelay` | merged | src/tick/task/schedule.rs:202 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
-| `scheduler\TaskHandler::getNextRun` | implemented | src/tick/task/schedule.rs:202 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
+| `scheduler\TaskHandler::cancel` | implemented | src/tick/task/schedule.rs:231 `cancel_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskHandler::getDelay` | merged | src/tick/task/schedule.rs:203 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
+| `scheduler\TaskHandler::getNextRun` | implemented | src/tick/task/schedule.rs:203 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
 | `scheduler\TaskHandler::getOwnerName` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `scheduler\TaskHandler::getPeriod` | implemented | src/tick/task/schedule.rs:212 `task_period_ticks` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
+| `scheduler\TaskHandler::getPeriod` | implemented | src/tick/task/schedule.rs:213 `task_period_ticks` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
 | `scheduler\TaskHandler::getTask` | skipped |  |  | a scheduled closure is owned by the scheduler; its `task::Handle` names it |
 | `scheduler\TaskHandler::getTaskName` | skipped |  |  | a scheduled closure has no name |
-| `scheduler\TaskHandler::isCancelled` | merged | src/tick/task/schedule.rs:195 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `TaskScheduler::isQueued` |
-| `scheduler\TaskHandler::isDelayed` | merged | src/tick/task/schedule.rs:202 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
-| `scheduler\TaskHandler::isRepeating` | implemented | src/tick/task/schedule.rs:213 `task_period_ticks` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
-| `scheduler\TaskScheduler` | merged | src/tick/task/schedule.rs:242 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `TaskScheduler::scheduleTask` |
+| `scheduler\TaskHandler::isCancelled` | merged | src/tick/task/schedule.rs:196 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `TaskScheduler::isQueued` |
+| `scheduler\TaskHandler::isDelayed` | merged | src/tick/task/schedule.rs:203 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
+| `scheduler\TaskHandler::isRepeating` | implemented | src/tick/task/schedule.rs:214 `task_period_ticks` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
+| `scheduler\TaskScheduler` | merged | src/tick/task/schedule.rs:243 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `TaskScheduler::scheduleTask` |
 | `scheduler\TaskScheduler::__construct` | skipped |  |  | the tick loop runs scheduled work |
-| `scheduler\TaskScheduler::cancelAllTasks` | implemented | src/tick/task/schedule.rs:223 `cancel_all_tasks` | src/tick/task/schedule.rs::scheduling_past_the_limit_fails_and_cancel_all_empties_the_queue |  |
-| `scheduler\TaskScheduler::isQueued` | implemented | src/tick/task/schedule.rs:195 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskScheduler::cancelAllTasks` | implemented | src/tick/task/schedule.rs:224 `cancel_all_tasks` | src/tick/task/schedule.rs::scheduling_past_the_limit_fails_and_cancel_all_empties_the_queue |  |
+| `scheduler\TaskScheduler::isQueued` | implemented | src/tick/task/schedule.rs:196 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
 | `scheduler\TaskScheduler::mainThreadHeartbeat` | skipped |  |  | the tick loop runs scheduled work |
-| `scheduler\TaskScheduler::scheduleDelayedRepeatingTask` | implemented | src/tick/task/schedule.rs:277 `schedule_delayed_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
-| `scheduler\TaskScheduler::scheduleDelayedTask` | implemented | src/tick/task/schedule.rs:243 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
-| `scheduler\TaskScheduler::scheduleRepeatingTask` | implemented | src/tick/task/schedule.rs:263 `schedule_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
-| `scheduler\TaskScheduler::scheduleTask` | implemented | src/tick/task/schedule.rs:242 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\TaskScheduler::scheduleDelayedRepeatingTask` | implemented | src/tick/task/schedule.rs:278 `schedule_delayed_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskScheduler::scheduleDelayedTask` | implemented | src/tick/task/schedule.rs:244 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\TaskScheduler::scheduleRepeatingTask` | implemented | src/tick/task/schedule.rs:264 `schedule_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskScheduler::scheduleTask` | implemented | src/tick/task/schedule.rs:243 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
 | `scheduler\TaskScheduler::setEnabled` | skipped |  |  | the tick loop runs scheduled work |
 | `scheduler\TaskScheduler::shutdown` | skipped |  |  | the tick loop runs scheduled work |
 | `scheduler\TimingsCollectionTask` | skipped |  |  | PHP timings profiler |
@@ -9366,7 +9366,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\ChunkListenerNoOpTrait::onChunkLoaded` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListenerNoOpTrait::onChunkPopulated` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListenerNoOpTrait::onChunkUnloaded` | skipped |  |  | chunk listeners: world changes are events |
-| `world\ChunkLoader` | implemented | src/world.rs:418 `Ticket` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\ChunkLoader` | implemented | src/world.rs:421 `Ticket` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\ChunkLockId` | skipped |  |  | chunk loading is the engine's |
 | `world\ChunkLockId::__clone` | skipped |  |  | chunk loading is the engine's |
 | `world\ChunkLockId::__serialize` | skipped |  |  | chunk loading is the engine's |
@@ -9380,20 +9380,20 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\ChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\ChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\ChunkTicker` | skipped |  |  | chunk ticking is the engine's |
-| `world\Explosion` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `world\Explosion::__construct` | implemented | src/tick/world_api.rs:154 `explode` | src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
-| `world\Explosion::explodeA` | implemented | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:155 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
-| `world\Explosion::explodeB` | implemented | src/action/entity.rs:44 `Explode`<br>src/tick/world_api.rs:156 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/interact/tests/events.rs::a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
+| `world\Explosion` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
+| `world\Explosion::__construct` | implemented | src/tick/world_api.rs:158 `explode` | src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
+| `world\Explosion::explodeA` | implemented | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
+| `world\Explosion::explodeB` | implemented | src/action/entity.rs:44 `Explode`<br>src/tick/world_api.rs:160 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/interact/tests/events.rs::a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
 | `world\Explosion::setFireChance` | implemented | src/action/entity.rs:67 `fire` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
-| `world\Position` | merged | src/tick/entity/api.rs:1563 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Position::getWorld` |
+| `world\Position` | merged | src/tick/entity/api.rs:1564 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Position::getWorld` |
 | `world\Position::__construct` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\Position::asPosition` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::equals` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::fromObject` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::getSide` | implemented | src/world.rs:100 `step` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
-| `world\Position::getWorld` | implemented | src/tick/entity/api.rs:1563 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `world\Position::isValid` | implemented | src/tick/world_api.rs:72 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\Position::getWorld` | implemented | src/tick/entity/api.rs:1564 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `world\Position::isValid` | implemented | src/tick/world_api.rs:76 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\SimpleChunkManager` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::__construct` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::cleanChunks` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
@@ -9404,16 +9404,16 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\SimpleChunkManager::isInWorld` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
-| `world\World` | implemented | src/world.rs:549 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::__construct` | merged | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:454 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
+| `world\World` | implemented | src/world.rs:572 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::__construct` | merged | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` |
 | `world\World::addOnUnloadCallback` | implemented | src/event/world.rs:212 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
-| `world\World::addParticle` | implemented | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
+| `world\World::addParticle` | implemented | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
 | `world\World::addRandomTickedBlock` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them (`custom::Block::random_ticks`) |
-| `world\World::addSound` | implemented | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
+| `world\World::addSound` | implemented | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
 | `world\World::blockHash` | skipped |  |  | chunk store internals |
-| `world\World::broadcastPacketToViewers` | implemented | src/tick/world_api.rs:127 `broadcast_packet` | src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
+| `world\World::broadcastPacketToViewers` | implemented | src/tick/world_api.rs:131 `broadcast_packet` | src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place |  |
 | `world\World::cancelUnloadChunkRequest` | skipped |  |  | chunk loading is the engine's |
 | `world\World::checkSleep` | skipped |  |  | sleep rule code |
 | `world\World::chunkBlockHash` | skipped |  |  | chunk store internals |
@@ -9421,62 +9421,62 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::clearCache` | skipped |  |  | chunk store internals |
 | `world\World::computeSkyLightReduction` | skipped |  |  | light rule code |
 | `world\World::computeSunAnglePercentage` | skipped |  |  | sky light rule code |
-| `world\World::createBlockUpdatePackets` | implemented | src/tick/view.rs:1138 `send_fake_block` | src/tick/inventory/tests/menu.rs::a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block |  |
+| `world\World::createBlockUpdatePackets` | implemented | src/tick/view.rs:1147 `send_fake_block` | src/tick/inventory/tests/menu.rs::a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block |  |
 | `world\World::doChunkGarbageCollection` | skipped |  |  | chunk store internals |
-| `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1742 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `world\World::dropItem` | implemented | src/tick/entity/api.rs:1719 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `world\World::getAdjacentChunks` | merged | src/world.rs:719 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1743 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `world\World::dropItem` | implemented | src/tick/entity/api.rs:1720 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `world\World::getAdjacentChunks` | merged | src/world.rs:742 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `world\World::getAutoSave` | merged | src/tick/command.rs:672 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::getAutoSave` |
-| `world\World::getBiome` | implemented | src/world.rs:615 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getBiomeId` | implemented | src/world.rs:614 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getBlock` | implemented | src/world.rs:624 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::getBlockAt` | implemented | src/world.rs:623 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::getBlockCollisionBoxes` | implemented | src/tick/world_api.rs:245 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world |  |
-| `world\World::getBlockLightAt` | implemented | src/world.rs:650 `block_light` | src/world/light.rs::block_light_follows_the_spread_rules |  |
+| `world\World::getBiome` | implemented | src/world.rs:638 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getBiomeId` | implemented | src/world.rs:637 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getBlock` | implemented | src/world.rs:647 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::getBlockAt` | implemented | src/world.rs:646 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::getBlockCollisionBoxes` | implemented | src/tick/world_api.rs:250 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world |  |
+| `world\World::getBlockLightAt` | implemented | src/world.rs:673 `block_light` | src/world/light.rs::block_light_follows_the_spread_rules |  |
 | `world\World::getBlockXYZ` | skipped |  |  | chunk store internals |
-| `world\World::getChunk` | implemented | src/world.rs:719 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
-| `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1623 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getChunk` | implemented | src/world.rs:742 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
+| `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1624 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:992 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:1001 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::getChunkPlayers` | implemented | src/tick/world_api.rs:44 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
-| `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1695 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getCollisionBlocks` | merged | src/tick/world_api.rs:245 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
-| `world\World::getCollisionBoxes` | merged | src/tick/world_api.rs:245 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
-| `world\World::getDifficulty` | implemented | src/world.rs:728 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1696 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getCollisionBlocks` | merged | src/tick/world_api.rs:250 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
+| `world\World::getCollisionBoxes` | merged | src/tick/world_api.rs:250 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
+| `world\World::getDifficulty` | implemented | src/world.rs:751 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::getDifficultyFromString` | skipped |  |  | settings are typed `Config` fields |
-| `world\World::getDisplayName` | implemented | src/world.rs:849 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getEntities` | implemented | src/tick/entity/api.rs:1642 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getEntity` | implemented | src/tick/entity/api.rs:1650 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getFolderName` | implemented | src/world.rs:848 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getFullLight` | merged | src/world.rs:742 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `world\World::getFullLightAt` | implemented | src/world.rs:742 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `world\World::getDisplayName` | implemented | src/world.rs:872 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getEntities` | implemented | src/tick/entity/api.rs:1643 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getEntity` | implemented | src/tick/entity/api.rs:1651 `entity_by_runtime_id` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getFolderName` | implemented | src/world.rs:871 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getFullLight` | merged | src/world.rs:765 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getFullLightAt` | implemented | src/world.rs:765 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
 | `world\World::getHighestAdjacentBlockLight` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentFullLightAt` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentPotentialBlockSkyLight` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentPotentialLightAt` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentRealBlockSkyLight` | skipped |  |  | light rule code |
-| `world\World::getHighestBlockAt` | implemented | src/world.rs:758 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getId` | implemented | src/world.rs:766 `id` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getLoadedChunks` | implemented | src/world.rs:842 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getHighestBlockAt` | implemented | src/world.rs:781 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getId` | implemented | src/world.rs:789 `id` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getLoadedChunks` | implemented | src/world.rs:865 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `world\World::getMaxY` | implemented | src/world.rs:44 `MAX_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getMinY` | implemented | src/world.rs:49 `MIN_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getNearbyEntities` | implemented | src/tick/entity/api.rs:1694 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1663 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getNearbyEntities` | implemented | src/tick/entity/api.rs:1695 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1664 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getOrLoadChunkAtPosition` | skipped |  |  | chunks load off the tick and arrive as a later tick's input: a block of a chunk that is not loaded reads as `None` |
 | `world\World::getPlayers` | implemented | src/tick/world_api.rs:60 `players_in` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
-| `world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:882 `sky_light` | src/world/light.rs::sky_light_follows_the_spread_rules |  |
-| `world\World::getPotentialLight` | merged | src/world.rs:742 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `world\World::getPotentialLightAt` | merged | src/world.rs:742 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:905 `sky_light` | src/world/light.rs::sky_light_follows_the_spread_rules |  |
+| `world\World::getPotentialLight` | merged | src/world.rs:765 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getPotentialLightAt` | merged | src/world.rs:765 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
 | `world\World::getProvider` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\World::getRandomTickedBlocks` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them (`custom::Block::random_ticks`) |
-| `world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:867 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
-| `world\World::getSafeSpawn` | implemented | src/tick/world_api.rs:264 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column |  |
-| `world\World::getSeed` | implemented | src/world.rs:874 `seed` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:890 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `world\World::getSafeSpawn` | implemented | src/tick/world_api.rs:269 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column |  |
+| `world\World::getSeed` | implemented | src/world.rs:897 `seed` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
 | `world\World::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `world\World::getSkyLightReduction` | skipped |  |  | light rule code |
-| `world\World::getSpawnLocation` | implemented | src/world.rs:888 `spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
+| `world\World::getSpawnLocation` | implemented | src/world.rs:911 `spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
 | `world\World::getSunAngleDegrees` | skipped |  |  | sky light rule code |
 | `world\World::getSunAnglePercentage` | skipped |  |  | sky light rule code |
 | `world\World::getSunAngleRadians` | skipped |  |  | sky light rule code |
@@ -9484,92 +9484,92 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getTickingChunks` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::getTile` | implemented | src/tick/block_entity/api.rs:26 `block_entity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `world\World::getTileAt` | implemented | src/tick/block_entity/api.rs:27 `block_entity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `world\World::getTime` | implemented | src/world.rs:913 `time_ticks` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once<br>src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
-| `world\World::getTimeOfDay` | implemented | src/world.rs:904 `time_of_day` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getTime` | implemented | src/world.rs:936 `time_ticks` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once<br>src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getTimeOfDay` | implemented | src/world.rs:927 `time_of_day` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
 | `world\World::getViewersForPosition` | implemented | src/tick/world_api.rs:45 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getXZ` | skipped |  |  | chunk store internals |
 | `world\World::isChunkGenerated` | skipped |  |  | chunk loading is the engine's |
-| `world\World::isChunkInUse` | differs | src/tick/view.rs:993 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
-| `world\World::isChunkLoaded` | implemented | src/world.rs:778 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::isChunkInUse` | differs | src/tick/view.rs:1002 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
+| `world\World::isChunkLoaded` | implemented | src/world.rs:801 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isChunkLocked` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isChunkPopulated` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isDoingTick` | skipped |  |  | callbacks run only in the tick's serial step |
-| `world\World::isInLoadedTerrain` | merged | src/world.rs:778 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
-| `world\World::isInWorld` | implemented | src/world.rs:784 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:409 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\World::isSpawnChunk` | implemented | src/world.rs:803 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
-| `world\World::loadChunk` | differs | src/tick/view.rs:1067 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
+| `world\World::isInLoadedTerrain` | merged | src/world.rs:801 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
+| `world\World::isInWorld` | implemented | src/world.rs:807 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:410 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\World::isSpawnChunk` | implemented | src/world.rs:826 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
+| `world\World::loadChunk` | differs | src/tick/view.rs:1076 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
-| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1096 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
-| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1069 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1119 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
+| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1078 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:1066 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:1075 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::registerTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::removeEntity` | merged | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Entity::flagForDespawn` |
 | `world\World::removeOnUnloadCallback` | implemented | src/event/world.rs:213 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\World::removeRandomTickedBlock` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them (`custom::Block::random_ticks`) |
-| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:1068 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
-| `world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:264 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
-| `world\World::save` | implemented | src/tick/task.rs:256 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
+| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:1077 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:269 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
+| `world\World::save` | implemented | src/tick/task.rs:257 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `world\World::scheduleDelayedBlockUpdate` | skipped |  |  | block rule code: Anchor has no scheduled block updates |
 | `world\World::setAutoSave` | merged | src/tick/command.rs:988 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::setAutoSave` |
-| `world\World::setBiomeId` | implemented | src/world.rs:1058 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::setBlock` | implemented | src/world.rs:1096 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::setBlockAt` | implemented | src/world.rs:1095 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::setBiomeId` | implemented | src/world.rs:1081 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::setBlock` | implemented | src/world.rs:1119 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::setBlockAt` | implemented | src/world.rs:1118 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setChunk` | skipped |  |  | the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block` |
 | `world\World::setChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
-| `world\World::setDifficulty` | implemented | src/tick/world_api/lifecycle.rs:631 `set_world_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\World::setDifficulty` | implemented | src/tick/world_api/lifecycle.rs:634 `set_world_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::setDisplayName` | skipped |  |  | a world's name is its storage key and the reference of players' spawn points, so it never changes |
 | `world\World::setSleepTicks` | skipped |  |  | sleep rule code |
-| `world\World::setSpawnLocation` | implemented | src/world.rs:1138 `set_spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks<br>src/tick/world_api/tests.rs::a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays |  |
-| `world\World::setTime` | implemented | src/tick/world_api.rs:178 `set_time` | src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
-| `world\World::startTime` | implemented | src/tick/world_api/lifecycle.rs:656 `start_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players |  |
-| `world\World::stopTime` | implemented | src/tick/world_api/lifecycle.rs:667 `stop_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\World::setSpawnLocation` | implemented | src/world.rs:1161 `set_spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks<br>src/tick/world_api/tests.rs::a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays |  |
+| `world\World::setTime` | implemented | src/tick/world_api.rs:183 `set_time` | src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
+| `world\World::startTime` | implemented | src/tick/world_api/lifecycle.rs:659 `start_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players |  |
+| `world\World::stopTime` | implemented | src/tick/world_api/lifecycle.rs:670 `stop_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::unloadChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unloadChunkRequest` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unloadChunks` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unlockChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unregisterChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::unregisterChunkListenerFromAll` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1113 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1122 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::unregisterTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::updateAllLight` | skipped |  |  | light rule code |
 | `world\World::useBreakOn` | merged | src/action/interact.rs:45 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied | into `Player::breakBlock` |
 | `world\World::useItemOn` | merged | src/action/interact.rs:116 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied | into `Player::interactBlock` |
-| `world\WorldCreationOptions` | implemented | src/world.rs:292 `Options` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::__construct` | merged | src/world.rs:305 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `WorldCreationOptions::create` |
-| `world\WorldCreationOptions::create` | implemented | src/world.rs:305 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getDifficulty` | implemented | src/world.rs:312 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getGeneratorClass` | implemented | src/world.rs:320 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions` | implemented | src/world.rs:295 `Options` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::__construct` | merged | src/world.rs:308 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `WorldCreationOptions::create` |
+| `world\WorldCreationOptions::create` | implemented | src/world.rs:308 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getDifficulty` | implemented | src/world.rs:315 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getGeneratorClass` | implemented | src/world.rs:323 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldCreationOptions::getGeneratorOptions` | skipped |  |  | a generator is a Rust value configured in code, not an options string |
-| `world\WorldCreationOptions::getSeed` | implemented | src/world.rs:331 `seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getSpawnPosition` | implemented | src/world.rs:346 `spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setDifficulty` | implemented | src/world.rs:353 `with_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setGeneratorClass` | implemented | src/world.rs:363 `with_generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getSeed` | implemented | src/world.rs:334 `seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getSpawnPosition` | implemented | src/world.rs:349 `spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setDifficulty` | implemented | src/world.rs:356 `with_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setGeneratorClass` | implemented | src/world.rs:366 `with_generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldCreationOptions::setGeneratorOptions` | skipped |  |  | a generator is a Rust value configured in code, not an options string |
-| `world\WorldCreationOptions::setSeed` | implemented | src/world.rs:378 `with_seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setSpawnPosition` | implemented | src/world.rs:394 `with_spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setSeed` | implemented | src/world.rs:381 `with_seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setSpawnPosition` | implemented | src/world.rs:397 `with_spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldException` | skipped |  |  | PHP exception: Anchor returns `Result` with module `Error` enums |
-| `world\WorldManager` | merged | src/tick/world_api.rs:71 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
+| `world\WorldManager` | merged | src/tick/world_api.rs:75 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
-| `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1649 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\WorldManager::generateWorld` | implemented | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:454 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
+| `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1650 `entity_by_runtime_id` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\WorldManager::generateWorld` | implemented | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:672 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
 | `world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:96 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
-| `world\WorldManager::getWorld` | implemented | src/tick/world_api.rs:71 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:245 `world_named` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
-| `world\WorldManager::getWorlds` | implemented | src/tick/world_api.rs:79 `worlds` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:402 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
-| `world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:408 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\WorldManager::loadWorld` | implemented | src/tick/world_api/lifecycle.rs:572 `load_world` | src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\WorldManager::getWorld` | implemented | src/tick/world_api.rs:75 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:246 `world_by_name` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `world\WorldManager::getWorlds` | implemented | src/tick/world_api.rs:83 `worlds` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:403 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:409 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\WorldManager::loadWorld` | implemented | src/tick/world_api/lifecycle.rs:575 `load_world` | src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:988 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
 | `world\WorldManager::setAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
-| `world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:612 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:615 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::tick` | skipped |  |  | the tick loop ticks every world |
-| `world\WorldManager::unloadWorld` | implemented | src/tick/world_api/lifecycle.rs:537 `force_unload_world`<br>src/tick/world_api/lifecycle.rs:685 `unload_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
+| `world\WorldManager::unloadWorld` | implemented | src/tick/world_api/lifecycle.rs:540 `force_unload_world`<br>src/tick/world_api/lifecycle.rs:688 `unload_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
 | `world\WorldTimings` | skipped |  |  | PHP timings profiler |
 | `world\WorldTimings::__construct` | skipped |  |  | PHP timings profiler |
 | `world\biome\Biome` | skipped |  |  | vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`) |
@@ -9646,9 +9646,9 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\format\Chunk::getBiomeId` | implemented | src/world/chunk.rs:97 `biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::getBlockStateId` | implemented | src/world/chunk.rs:110 `block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::getHeight` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
-| `world\format\Chunk::getHeightMap` | merged | src/world/chunk.rs:168 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::getHeightMapArray` | merged | src/world/chunk.rs:168 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::getHighestBlockAt` | implemented | src/world/chunk.rs:168 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::getHeightMap` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::getHeightMapArray` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::getHighestBlockAt` | implemented | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::getSubChunk` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::getSubChunks` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::getTerrainDirtyFlag` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
@@ -9660,10 +9660,10 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\format\Chunk::isTerrainDirty` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::onUnload` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::removeTile` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
-| `world\format\Chunk::setBiomeId` | implemented | src/world/chunk.rs:290 `set_biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
-| `world\format\Chunk::setBlockStateId` | implemented | src/world/chunk.rs:307 `set_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes<br>src/world/chunk.rs::setting_air_clears_the_water_over_an_air_slot |  |
-| `world\format\Chunk::setHeightMap` | merged | src/world/chunk.rs:168 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::setHeightMapArray` | merged | src/world/chunk.rs:168 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::setBiomeId` | implemented | src/world/chunk.rs:289 `set_biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::setBlockStateId` | implemented | src/world/chunk.rs:306 `set_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes<br>src/world/chunk.rs::setting_air_clears_the_water_over_an_air_slot |  |
+| `world\format\Chunk::setHeightMap` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::setHeightMapArray` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
 | `world\format\Chunk::setLightPopulated` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::setPopulated` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::setSubChunk` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
@@ -9974,22 +9974,22 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\generator\normal\Normal::__construct` | skipped |  |  | vanilla terrain generation |
 | `world\generator\normal\Normal::generateChunk` | skipped |  |  | vanilla terrain generation |
 | `world\generator\normal\Normal::populateChunk` | skipped |  |  | vanilla terrain generation |
-| `world\generator\object\AcaciaTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\AcaciaTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\AzaleaTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\AzaleaTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\AzaleaTree::getBlockTransaction` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\BirchTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\BirchTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\BirchTree::getBlockTransaction` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\JungleTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\JungleTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\NetherTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\NetherTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\NetherTree::canPlaceObject` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\OakTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\OakTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\OakTree::getBlockTransaction` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\AcaciaTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\AcaciaTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\AzaleaTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\AzaleaTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\AzaleaTree::getBlockTransaction` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\BirchTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\BirchTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\BirchTree::getBlockTransaction` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\JungleTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\JungleTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\NetherTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\NetherTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\NetherTree::canPlaceObject` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\OakTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\OakTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\OakTree::getBlockTransaction` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
 | `world\generator\object\Ore` | skipped |  |  | vanilla terrain generation |
 | `world\generator\object\Ore::__construct` | skipped |  |  | vanilla terrain generation |
 | `world\generator\object\Ore::canPlaceObject` | skipped |  |  | vanilla terrain generation |
@@ -9997,17 +9997,17 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\generator\object\Ore::placeObject` | skipped |  |  | vanilla terrain generation |
 | `world\generator\object\OreType` | skipped |  |  | vanilla terrain generation |
 | `world\generator\object\OreType::__construct` | skipped |  |  | vanilla terrain generation |
-| `world\generator\object\SpruceTree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\SpruceTree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\SpruceTree::getBlockTransaction` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\SpruceTree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\SpruceTree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\SpruceTree::getBlockTransaction` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
 | `world\generator\object\TallGrass` | skipped |  |  | vanilla terrain generation |
 | `world\generator\object\TallGrass::growGrass` | skipped |  |  | vanilla terrain generation |
-| `world\generator\object\Tree` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\Tree::__construct` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\Tree::canPlaceObject` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\Tree::getBlockTransaction` | merged | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
-| `world\generator\object\TreeFactory` | implemented | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit |  |
-| `world\generator\object\TreeFactory::get` | implemented | src/tick/update.rs:84 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit |  |
+| `world\generator\object\Tree` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\Tree::__construct` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\Tree::canPlaceObject` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\Tree::getBlockTransaction` | merged | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit | into `TreeFactory::get` |
+| `world\generator\object\TreeFactory` | implemented | src/tick/update.rs:82 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit |  |
+| `world\generator\object\TreeFactory::get` | implemented | src/tick/update.rs:83 `grow_tree` | src/tick/update.rs::the_api_grows_trees_where_they_fit |  |
 | `world\generator\object\TreeType` | implemented | src/world/tree.rs:149 `TreeType` | src/world/tree.rs::tree_types_have_display_names |  |
 | `world\generator\object\TreeType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\generator\object\TreeType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -10053,40 +10053,40 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\light\SkyLightUpdate::recalculateChunk` | skipped |  |  | light rule code on the CPU pool |
 | `world\light\SkyLightUpdate::recalculateNode` | skipped |  |  | light rule code on the CPU pool |
 | `world\particle\AngryVillagerParticle` | implemented | src/world/particle.rs:92 `AngryVillager` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\AngryVillagerParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\AngryVillagerParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockBreakParticle` | implemented | src/world/particle.rs:96 `BlockBreak` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\BlockBreakParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockBreakParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockBreakParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockBreakParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockForceFieldParticle` | implemented | src/world/particle.rs:99 `BlockForceField` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\BlockForceFieldParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockForceFieldParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockForceFieldParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockForceFieldParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockPunchParticle` | implemented | src/world/particle.rs:103 `BlockPunch` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\BlockPunchParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockPunchParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockPunchParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BlockPunchParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BubbleParticle` | implemented | src/world/particle.rs:106 `Bubble` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\BubbleParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\BubbleParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\CriticalParticle` | implemented | src/world/particle.rs:109 `Critical` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\CriticalParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\CriticalParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\CriticalParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\CriticalParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\DragonEggTeleportParticle` | implemented | src/world/particle.rs:113 `DragonEggTeleport` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\DragonEggTeleportParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\DragonEggTeleportParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\DragonEggTeleportParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\DragonEggTeleportParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\DustParticle` | implemented | src/world/particle.rs:123 `Dust` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\DustParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\DustParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\DustParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\DustParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\EnchantParticle` | implemented | src/world/particle.rs:126 `Enchant` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\EnchantParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\EnchantParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\EnchantParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\EnchantParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\EnchantmentTableParticle` | implemented | src/world/particle.rs:129 `EnchantmentTable` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\EnchantmentTableParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\EnchantmentTableParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\EndermanTeleportParticle` | implemented | src/world/particle.rs:132 `EndermanTeleport` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\EndermanTeleportParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\EndermanTeleportParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\EntityFlameParticle` | implemented | src/world/particle.rs:135 `EntityFlame` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\EntityFlameParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\EntityFlameParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\ExplodeParticle` | implemented | src/world/particle.rs:138 `Explode` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\ExplodeParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\ExplodeParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\FlameParticle` | implemented | src/world/particle.rs:141 `Flame` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\FlameParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\FlameParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\FloatingTextParticle` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::__construct` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::encode` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
@@ -10097,64 +10097,64 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\particle\FloatingTextParticle::setText` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::setTitle` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\HappyVillagerParticle` | implemented | src/world/particle.rs:144 `HappyVillager` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\HappyVillagerParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\HappyVillagerParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\HeartParticle` | implemented | src/world/particle.rs:147 `Heart` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\HeartParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\HeartParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\HeartParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\HeartParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\HugeExplodeParticle` | implemented | src/world/particle.rs:150 `HugeExplode` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\HugeExplodeParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\HugeExplodeParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\HugeExplodeSeedParticle` | implemented | src/world/particle.rs:153 `HugeExplodeSeed` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\HugeExplodeSeedParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\HugeExplodeSeedParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\InkParticle` | implemented | src/world/particle.rs:156 `Ink` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\InkParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\InkParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\InkParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\InkParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\InstantEnchantParticle` | implemented | src/world/particle.rs:159 `InstantEnchant` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\InstantEnchantParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\InstantEnchantParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\InstantEnchantParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\InstantEnchantParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\ItemBreakParticle` | implemented | src/world/particle.rs:162 `ItemBreak` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\ItemBreakParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\ItemBreakParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\ItemBreakParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\ItemBreakParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\LavaDripParticle` | implemented | src/world/particle.rs:165 `LavaDrip` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\LavaDripParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\LavaDripParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\LavaParticle` | implemented | src/world/particle.rs:168 `Lava` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\LavaParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\LavaParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\MobSpawnParticle` | implemented | src/world/particle.rs:172 `MobSpawn` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\MobSpawnParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\MobSpawnParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\MobSpawnParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\MobSpawnParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\Particle` | implemented | src/world/particle.rs:89 `Particle` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\Particle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\Particle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\PortalParticle` | implemented | src/world/particle.rs:180 `Portal` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\PortalParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\PortalParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\PotionSplashParticle` | implemented | src/world/particle.rs:183 `PotionSplash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\PotionSplashParticle::DEFAULT_COLOR` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\PotionSplashParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\PotionSplashParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\PotionSplashParticle::getColor` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\PotionSplashParticle::DEFAULT_COLOR` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\PotionSplashParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\PotionSplashParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\PotionSplashParticle::getColor` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\RainSplashParticle` | implemented | src/world/particle.rs:186 `RainSplash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\RainSplashParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\RainSplashParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\RedstoneParticle` | implemented | src/world/particle.rs:189 `Redstone` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\RedstoneParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\RedstoneParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\RedstoneParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\RedstoneParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SmokeParticle` | implemented | src/world/particle.rs:192 `Smoke` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\SmokeParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SmokeParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SmokeParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SmokeParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SnowballPoofParticle` | implemented | src/world/particle.rs:195 `SnowballPoof` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\SnowballPoofParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SnowballPoofParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SonicExplosionParticle` | implemented | src/world/particle.rs:198 `SonicExplosion` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\SonicExplosionParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SonicExplosionParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SplashParticle` | implemented | src/world/particle.rs:201 `Splash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\SplashParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SplashParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SporeParticle` | implemented | src/world/particle.rs:204 `Spore` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\SporeParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\SporeParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\TerrainParticle` | implemented | src/world/particle.rs:207 `Terrain` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\TerrainParticle::__construct` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\TerrainParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\TerrainParticle::__construct` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\TerrainParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\WaterDripParticle` | implemented | src/world/particle.rs:210 `WaterDrip` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\WaterDripParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\WaterDripParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\WaterParticle` | implemented | src/world/particle.rs:213 `Water` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
-| `world\particle\WaterParticle::encode` | merged | src/tick/world_api.rs:95 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
+| `world\particle\WaterParticle::encode` | merged | src/tick/world_api.rs:99 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\sound\AmethystBlockChimeSound` | implemented | src/world/sound.rs:44 `AmethystBlockChime` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\AmethystBlockChimeSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\AmethystBlockChimeSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\AnvilBreakSound` | skipped |  |  | anvil rule code |
 | `world\sound\AnvilBreakSound::encode` | skipped |  |  | anvil rule code |
 | `world\sound\AnvilFallSound` | skipped |  |  | anvil rule code |
@@ -10162,120 +10162,120 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\sound\AnvilUseSound` | skipped |  |  | anvil rule code |
 | `world\sound\AnvilUseSound::encode` | skipped |  |  | anvil rule code |
 | `world\sound\ArmorEquipChainSound` | implemented | src/world/sound.rs:47 `ArmorEquipChain` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipChainSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipChainSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipCopperSound` | implemented | src/world/sound.rs:50 `ArmorEquipCopper` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipCopperSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipCopperSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipDiamondSound` | implemented | src/world/sound.rs:53 `ArmorEquipDiamond` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipDiamondSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipDiamondSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipGenericSound` | implemented | src/world/sound.rs:56 `ArmorEquipGeneric` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipGenericSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipGenericSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipGoldSound` | implemented | src/world/sound.rs:59 `ArmorEquipGold` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipGoldSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipGoldSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipIronSound` | implemented | src/world/sound.rs:62 `ArmorEquipIron` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipIronSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipIronSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipLeatherSound` | implemented | src/world/sound.rs:65 `ArmorEquipLeather` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipLeatherSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipLeatherSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArmorEquipNetheriteSound` | implemented | src/world/sound.rs:68 `ArmorEquipNetherite` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArmorEquipNetheriteSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArmorEquipNetheriteSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ArrowHitSound` | implemented | src/world/sound.rs:71 `ArrowHit` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ArrowHitSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ArrowHitSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BarrelCloseSound` | implemented | src/world/sound.rs:74 `BarrelClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BarrelCloseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BarrelCloseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BarrelOpenSound` | implemented | src/world/sound.rs:77 `BarrelOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BarrelOpenSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BarrelOpenSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BellRingSound` | implemented | src/world/sound.rs:80 `BellRing` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BellRingSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BellRingSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlastFurnaceSound` | skipped |  |  | furnace rule code |
 | `world\sound\BlastFurnaceSound::encode` | skipped |  |  | furnace rule code |
 | `world\sound\BlazeShootSound` | implemented | src/world/sound.rs:83 `BlazeShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BlazeShootSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlazeShootSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockBreakSound` | implemented | src/world/sound.rs:86 `BlockBreak` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BlockBreakSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockBreakSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockBreakSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockBreakSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockPlaceSound` | implemented | src/world/sound.rs:89 `BlockPlace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BlockPlaceSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockPlaceSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockPlaceSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockPlaceSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockPunchSound` | implemented | src/world/sound.rs:92 `BlockPunch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BlockPunchSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockPunchSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockPunchSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BlockPunchSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BottleEmptySound` | implemented | src/world/sound.rs:95 `BottleEmpty` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BottleEmptySound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BottleEmptySound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BowShootSound` | implemented | src/world/sound.rs:98 `BowShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BowShootSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BowShootSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BucketEmptyLavaSound` | implemented | src/world/sound.rs:101 `BucketEmptyLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BucketEmptyLavaSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BucketEmptyLavaSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BucketEmptyWaterSound` | implemented | src/world/sound.rs:104 `BucketEmptyWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BucketEmptyWaterSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BucketEmptyWaterSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BucketFillLavaSound` | implemented | src/world/sound.rs:107 `BucketFillLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BucketFillLavaSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BucketFillLavaSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BucketFillWaterSound` | implemented | src/world/sound.rs:110 `BucketFillWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BucketFillWaterSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BucketFillWaterSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BurpSound` | implemented | src/world/sound.rs:113 `Burp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\BurpSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\BurpSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CampfireSound` | skipped |  |  | campfire rule code |
 | `world\sound\CampfireSound::encode` | skipped |  |  | campfire rule code |
 | `world\sound\CauldronAddDyeSound` | implemented | src/world/sound.rs:116 `CauldronAddDye` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronAddDyeSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronAddDyeSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronCleanItemSound` | implemented | src/world/sound.rs:119 `CauldronCleanItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronCleanItemSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronCleanItemSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronDyeItemSound` | implemented | src/world/sound.rs:122 `CauldronDyeItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronDyeItemSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronDyeItemSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronEmptyLavaSound` | implemented | src/world/sound.rs:125 `CauldronEmptyLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronEmptyLavaSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronEmptyLavaSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronEmptyPotionSound` | implemented | src/world/sound.rs:128 `CauldronEmptyPotion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronEmptyPotionSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronEmptyPotionSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronEmptyPowderSnowSound` | implemented | src/world/sound.rs:131 `CauldronEmptyPowderSnow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronEmptyPowderSnowSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronEmptyPowderSnowSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronEmptyWaterSound` | implemented | src/world/sound.rs:134 `CauldronEmptyWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronEmptyWaterSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronEmptyWaterSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronFillLavaSound` | implemented | src/world/sound.rs:137 `CauldronFillLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronFillLavaSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronFillLavaSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronFillPotionSound` | implemented | src/world/sound.rs:140 `CauldronFillPotion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronFillPotionSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronFillPotionSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronFillPowderSnowSound` | implemented | src/world/sound.rs:143 `CauldronFillPowderSnow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronFillPowderSnowSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronFillPowderSnowSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CauldronFillWaterSound` | implemented | src/world/sound.rs:146 `CauldronFillWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CauldronFillWaterSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CauldronFillWaterSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ChestCloseSound` | implemented | src/world/sound.rs:149 `ChestClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ChestCloseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ChestCloseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ChestOpenSound` | implemented | src/world/sound.rs:152 `ChestOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ChestOpenSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ChestOpenSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ChorusFlowerDieSound` | implemented | src/world/sound.rs:155 `ChorusFlowerDie` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ChorusFlowerDieSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ChorusFlowerDieSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ChorusFlowerGrowSound` | implemented | src/world/sound.rs:158 `ChorusFlowerGrow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ChorusFlowerGrowSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ChorusFlowerGrowSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ClickSound` | implemented | src/world/sound.rs:161 `Click` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ClickSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ClickSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ClickSound::getPitch` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ClickSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ClickSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ClickSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CopperWaxApplySound` | implemented | src/world/sound.rs:167 `CopperWaxApply` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CopperWaxApplySound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CopperWaxApplySound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\CopperWaxRemoveSound` | implemented | src/world/sound.rs:170 `CopperWaxRemove` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\CopperWaxRemoveSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\CopperWaxRemoveSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DoorBumpSound` | implemented | src/world/sound.rs:173 `DoorBump` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DoorBumpSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DoorBumpSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DoorCrashSound` | implemented | src/world/sound.rs:176 `DoorCrash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DoorCrashSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DoorCrashSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DoorSound` | implemented | src/world/sound.rs:179 `Door` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DoorSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DoorSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DoorSound::getPitch` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DoorSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DoorSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DoorSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DripleafTiltDownSound` | implemented | src/world/sound.rs:185 `DripleafTiltDown` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DripleafTiltDownSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DripleafTiltDownSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DripleafTiltUpSound` | implemented | src/world/sound.rs:188 `DripleafTiltUp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DripleafTiltUpSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DripleafTiltUpSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DyeUseSound` | implemented | src/world/sound.rs:191 `DyeUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\DyeUseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\DyeUseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EnderChestCloseSound` | implemented | src/world/sound.rs:194 `EnderChestClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\EnderChestCloseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\EnderChestCloseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EnderChestOpenSound` | implemented | src/world/sound.rs:197 `EnderChestOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\EnderChestOpenSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\EnderChestOpenSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EndermanTeleportSound` | implemented | src/world/sound.rs:200 `EndermanTeleport` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\EndermanTeleportSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\EndermanTeleportSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EntityAttackNoDamageSound` | implemented | src/world/sound.rs:206 `EntityAttackNoDamage` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\EntityAttackNoDamageSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\EntityAttackNoDamageSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EntityAttackSound` | implemented | src/world/sound.rs:203 `EntityAttack` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\EntityAttackSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\EntityAttackSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EntityLandSound` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityLandSound::__construct` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityLandSound::encode` | skipped |  |  | the entity rules play it |
@@ -10286,58 +10286,58 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\sound\EntityShortFallSound::__construct` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityShortFallSound::encode` | skipped |  |  | the entity rules play it |
 | `world\sound\ExplodeSound` | implemented | src/world/sound.rs:209 `Explode` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ExplodeSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ExplodeSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FireExtinguishSound` | implemented | src/world/sound.rs:212 `FireExtinguish` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FireExtinguishSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FireExtinguishSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FireworkCrackleSound` | implemented | src/world/sound.rs:215 `FireworkCrackle` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FireworkCrackleSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FireworkCrackleSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FireworkExplosionSound` | implemented | src/world/sound.rs:218 `FireworkExplosion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FireworkExplosionSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FireworkExplosionSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FireworkLargeExplosionSound` | implemented | src/world/sound.rs:221 `FireworkLargeExplosion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FireworkLargeExplosionSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FireworkLargeExplosionSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FireworkLaunchSound` | implemented | src/world/sound.rs:224 `FireworkLaunch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FireworkLaunchSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FireworkLaunchSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FizzSound` | implemented | src/world/sound.rs:227 `Fizz` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FizzSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FizzSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FizzSound::getPitch` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FizzSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FizzSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FizzSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FlintSteelSound` | implemented | src/world/sound.rs:233 `FlintSteel` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\FlintSteelSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\FlintSteelSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FurnaceSound` | skipped |  |  | furnace rule code |
 | `world\sound\FurnaceSound::encode` | skipped |  |  | furnace rule code |
 | `world\sound\GhastShootSound` | implemented | src/world/sound.rs:236 `GhastShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\GhastShootSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\GhastShootSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\GhastSound` | implemented | src/world/sound.rs:239 `Ghast` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\GhastSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\GhastSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\GlowBerriesPickSound` | implemented | src/world/sound.rs:242 `GlowBerriesPick` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\GlowBerriesPickSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\GlowBerriesPickSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\GoatHornSound` | implemented | src/world/sound.rs:246 `GoatHorn` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
-| `world\sound\GoatHornSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\GoatHornSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\GoatHornSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\GoatHornSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\IceBombHitSound` | implemented | src/world/sound.rs:249 `IceBombHit` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\IceBombHitSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\IceBombHitSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\IgniteSound` | implemented | src/world/sound.rs:252 `Ignite` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\IgniteSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\IgniteSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\InkSacUseSound` | implemented | src/world/sound.rs:255 `InkSacUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\InkSacUseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\InkSacUseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemBreakSound` | implemented | src/world/sound.rs:258 `ItemBreak` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ItemBreakSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemBreakSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemFrameAddItemSound` | implemented | src/world/sound.rs:261 `ItemFrameAddItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ItemFrameAddItemSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemFrameAddItemSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemFrameRemoveItemSound` | implemented | src/world/sound.rs:264 `ItemFrameRemoveItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ItemFrameRemoveItemSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemFrameRemoveItemSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemFrameRotateItemSound` | implemented | src/world/sound.rs:267 `ItemFrameRotateItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ItemFrameRotateItemSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemFrameRotateItemSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemUseOnBlockSound` | implemented | src/world/sound.rs:270 `ItemUseOnBlock` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ItemUseOnBlockSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemUseOnBlockSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemUseOnBlockSound::getBlock` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemUseOnBlockSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemUseOnBlockSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ItemUseOnBlockSound::getBlock` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\LaunchSound` | implemented | src/world/sound.rs:273 `Launch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\LaunchSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\LaunchSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\LaunchSound::getPitch` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\LaunchSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\LaunchSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\LaunchSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\LecternPlaceBookSound` | implemented | src/world/sound.rs:279 `LecternPlaceBook` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\LecternPlaceBookSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\LecternPlaceBookSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\NoteInstrument` | implemented | src/world/sound.rs:537 `NoteInstrument` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\NoteInstrument::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -10346,18 +10346,18 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\sound\NoteInstrument::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteSound` | implemented | src/world/sound.rs:282 `Note` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
-| `world\sound\NoteSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\NoteSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\NoteSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\NoteSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PaintingPlaceSound` | implemented | src/world/sound.rs:290 `PaintingPlace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\PaintingPlaceSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\PaintingPlaceSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PopSound` | implemented | src/world/sound.rs:293 `Pop` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\PopSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PopSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PopSound::getPitch` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\PopSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\PopSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\PopSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PotionFinishBrewingSound` | skipped |  |  | brewing rule code |
 | `world\sound\PotionFinishBrewingSound::encode` | skipped |  |  | brewing rule code |
 | `world\sound\PotionSplashSound` | implemented | src/world/sound.rs:299 `PotionSplash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\PotionSplashSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\PotionSplashSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PressurePlateActivateSound` | skipped |  |  | redstone |
 | `world\sound\PressurePlateActivateSound::__construct` | skipped |  |  | redstone |
 | `world\sound\PressurePlateActivateSound::encode` | skipped |  |  | redstone |
@@ -10365,51 +10365,51 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\sound\PressurePlateDeactivateSound::__construct` | skipped |  |  | redstone |
 | `world\sound\PressurePlateDeactivateSound::encode` | skipped |  |  | redstone |
 | `world\sound\RecordSound` | implemented | src/world/sound.rs:303 `Record` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
-| `world\sound\RecordSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RecordSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RecordSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RecordSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RecordStopSound` | implemented | src/world/sound.rs:306 `RecordStop` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\RecordStopSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RecordStopSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RedstonePowerOffSound` | implemented | src/world/sound.rs:312 `RedstonePowerOff` | src/world/sound.rs::levers_and_buttons_sound_as_redstone_power |  |
-| `world\sound\RedstonePowerOffSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RedstonePowerOffSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RedstonePowerOnSound` | implemented | src/world/sound.rs:309 `RedstonePowerOn` | src/world/sound.rs::levers_and_buttons_sound_as_redstone_power |  |
-| `world\sound\RedstonePowerOnSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RedstonePowerOnSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RespawnAnchorChargeSound` | implemented | src/world/sound.rs:315 `RespawnAnchorCharge` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\RespawnAnchorChargeSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RespawnAnchorChargeSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RespawnAnchorDepleteSound` | implemented | src/world/sound.rs:318 `RespawnAnchorDeplete` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\RespawnAnchorDepleteSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RespawnAnchorDepleteSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RespawnAnchorSetSpawnSound` | implemented | src/world/sound.rs:321 `RespawnAnchorSetSpawn` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\RespawnAnchorSetSpawnSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\RespawnAnchorSetSpawnSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ScrapeSound` | implemented | src/world/sound.rs:324 `Scrape` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ScrapeSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ScrapeSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ShulkerBoxCloseSound` | implemented | src/world/sound.rs:327 `ShulkerBoxClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ShulkerBoxCloseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ShulkerBoxCloseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ShulkerBoxOpenSound` | implemented | src/world/sound.rs:330 `ShulkerBoxOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ShulkerBoxOpenSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ShulkerBoxOpenSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\SmokerSound` | skipped |  |  | furnace rule code |
 | `world\sound\SmokerSound::encode` | skipped |  |  | furnace rule code |
 | `world\sound\Sound` | implemented | src/world/sound.rs:41 `Sound` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\Sound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\Sound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\SweetBerriesPickSound` | implemented | src/world/sound.rs:333 `SweetBerriesPick` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\SweetBerriesPickSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\SweetBerriesPickSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ThrowSound` | implemented | src/world/sound.rs:336 `Throw` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\ThrowSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\ThrowSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\TotemUseSound` | implemented | src/world/sound.rs:339 `TotemUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\TotemUseSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\TotemUseSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\TridentHitBlockSound` | implemented | src/world/sound.rs:342 `TridentHitBlock` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\TridentHitBlockSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\TridentHitBlockSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\TridentHitEntitySound` | implemented | src/world/sound.rs:345 `TridentHitEntity` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\TridentHitEntitySound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\TridentHitEntitySound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\TridentThrowSound` | implemented | src/world/sound.rs:348 `TridentThrow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\TridentThrowSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\TridentThrowSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\WaterSplashSound` | implemented | src/world/sound.rs:351 `WaterSplash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\WaterSplashSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\WaterSplashSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\WaterSplashSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\WaterSplashSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\XpCollectSound` | implemented | src/world/sound.rs:357 `XpCollect` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\XpCollectSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\XpCollectSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\XpLevelUpSound` | implemented | src/world/sound.rs:360 `XpLevelUp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
-| `world\sound\XpLevelUpSound::__construct` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\XpLevelUpSound::encode` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\XpLevelUpSound::getXpLevel` | merged | src/tick/world_api.rs:112 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\XpLevelUpSound::__construct` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\XpLevelUpSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
+| `world\sound\XpLevelUpSound::getXpLevel` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\utils\SubChunkExplorer` | skipped |  |  | chunk store internals |
 | `world\utils\SubChunkExplorer::__construct` | skipped |  |  | chunk store internals |
 | `world\utils\SubChunkExplorer::invalidate` | skipped |  |  | chunk store internals |

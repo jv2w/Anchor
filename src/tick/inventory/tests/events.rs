@@ -81,8 +81,8 @@ fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applie
                 (
                     c.inventory(),
                     c.slot(),
-                    c.before().count(),
-                    c.after().count(),
+                    c.old_item().count(),
+                    c.new_item().count(),
                 )
             })
             .collect();

@@ -86,7 +86,7 @@ impl Msg {
                 } else {
                     format!("{prefix}%{}", self.key)
                 },
-                parameters: params.iter().map(|p| (*p).to_owned()).collect(),
+                params: params.iter().map(|p| (*p).to_owned()).collect(),
             },
         }
     }
@@ -233,7 +233,7 @@ fn notify(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) {
         // `chat.type.admin`'s shape, which cannot carry a translation with parameters itself.
         let copy = Message::Translation {
             key: format!("{ADMIN_PREFIX}[{source}: %{}]", msg.key),
-            parameters: params.iter().map(|p| (*p).to_owned()).collect(),
+            params: params.iter().map(|p| (*p).to_owned()).collect(),
         };
         cx.copy_result(sender, copy, &text::render(msg.key, params))
     };

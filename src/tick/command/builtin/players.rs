@@ -126,7 +126,7 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         };
         let matches = |s: &Stack| {
             !s.is_empty()
-                && item.is_none_or(|t| s.item() == Some(t))
+                && item.is_none_or(|t| s.item_type() == Some(t))
                 && data.is_none_or(|d| i32::from(s.damage()) == d)
         };
         let held: Vec<(Slot, Stack)> = slots(p)

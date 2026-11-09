@@ -180,6 +180,7 @@ impl Survival {
         }
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -415,6 +416,7 @@ impl Switches {
         armor: true,
     };
 
+    /// Hashes every field (state hash).
     #[cfg(test)]
     fn hash_into(self, h: &mut super::Fnv) {
         let Self {
@@ -616,7 +618,7 @@ pub(crate) fn valid_stacks(stacks: Vec<Stack>, limit: usize) -> Vec<Stack> {
     stacks
         .into_iter()
         .filter_map(|s| {
-            let max = s.item()?.max_stack_size();
+            let max = s.item_type()?.max_stack_size();
             (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
         })
         .take(limit)
@@ -1028,7 +1030,7 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     for packet in super::weather::changes(weather(player.world), weather(world)) {
         player.send_packet(packet);
     }
-    player.world = world;
+    state.set_world(&mut player, world);
     player.position = pos;
     player.data_dirty = true;
     // Each world grants the radius the player asked for up to its `view-distance`; the client
@@ -1671,7 +1673,7 @@ mod tests {
     fn armor_resistance_and_protection_reduce_damage() {
         let mut server = Server::new(1, |_| {});
         let chest = stack(ItemKind::DiamondChestplate, 1);
-        let points = f64::from(chest.item().unwrap().armor_points());
+        let points = f64::from(chest.item_type().unwrap().armor_points());
         inventory::set_armor(server.player_mut(1), 1, chest);
         assert!(server.hurt(1, 10.0, Damage::Contact));
         let want = 20.0 - 10.0 * (1.0 - points * 0.04);
@@ -1962,7 +1964,7 @@ mod tests {
     fn melee_hits_deal_the_weapon_damage_with_criticals_and_knock_back() {
         let mut server = duel(|_| {});
         let sword = stack(ItemKind::DiamondSword, 1);
-        let points = f64::from(sword.item().unwrap().attack_points());
+        let points = f64::from(sword.item_type().unwrap().attack_points());
         inventory::set_held(server.player_mut(1), sword);
         attack_player(&mut server.state, sid(1), sid(2));
         assert_eq!(server.survival_mut(2).health, 20.0 - points);
@@ -2458,7 +2460,10 @@ mod tests {
         assert!(finish_eating(&mut server.state, sid(1)));
         assert!(server.survival_mut(1).food > 10.0);
         let glass_bottle = ItemKind::GlassBottle.default_type();
-        assert_eq!(server.player(1).inventory.held().item(), Some(glass_bottle));
+        assert_eq!(
+            server.player(1).inventory.held().item_type(),
+            Some(glass_bottle)
+        );
     }
 
     /// A chorus fruit puts the feet on the floor it found, not the eyes.
@@ -3426,7 +3431,7 @@ mod tests {
         let s = server.survival_mut(1);
         assert!(!s.effects.contains_key(&effect::Type::Poison));
         assert!(s.effects.contains_key(&effect::Type::Blindness));
-        let held = server.player(1).inventory.held().item().unwrap();
+        let held = server.player(1).inventory.held().item_type().unwrap();
         assert_eq!(held.name(), "minecraft:glass_bottle");
     }
 

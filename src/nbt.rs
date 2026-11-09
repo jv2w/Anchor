@@ -15,7 +15,8 @@
 //! Reading and writing keep nested containers on a heap stack, not the thread stack. Dropping,
 //! cloning, comparing and serde's writing of a [`Value`] recurse, which the depth limit bounds.
 //! Floats compare by their bits, the way they are written: `NaN` equals itself and `0.0` differs
-//! from `-0.0`.
+//! from `-0.0`. Values are ordered by tag type, then by contents (floats by their bits), so a
+//! compound can key a sorted index.
 //!
 //! Serde writes a [`Value`] and a [`List`] with their tag type (`{"Short":3}`, `{"List":{"Int":
 //! [1,2]}}`) and a float as its IEEE 754 bits (`{"Float":1065353216}`), so a value reads back the
@@ -23,9 +24,11 @@
 //! the compound of [`Stack::to_nbt`](crate::item::Stack::to_nbt), and reads it back with
 //! [`Context::stack_from_nbt`](crate::Context::stack_from_nbt), which knows custom items too.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, btree_map};
 use std::mem::size_of;
 use std::slice;
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -130,6 +133,29 @@ impl Value {
     }
 }
 
+impl Eq for Value {}
+
+/// By tag type, then by contents; floats by their bits, as [`PartialEq`] compares them.
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Byte(a), Self::Byte(b)) => a.cmp(b),
+            (Self::Short(a), Self::Short(b)) => a.cmp(b),
+            (Self::Int(a), Self::Int(b)) => a.cmp(b),
+            (Self::Long(a), Self::Long(b)) => a.cmp(b),
+            (Self::Float(a), Self::Float(b)) => a.to_bits().cmp(&b.to_bits()),
+            (Self::Double(a), Self::Double(b)) => a.to_bits().cmp(&b.to_bits()),
+            (Self::ByteArray(a), Self::ByteArray(b)) => a.cmp(b),
+            (Self::String(a), Self::String(b)) => a.cmp(b),
+            (Self::List(a), Self::List(b)) => a.cmp(b),
+            (Self::Compound(a), Self::Compound(b)) => a.cmp(b),
+            (Self::IntArray(a), Self::IntArray(b)) => a.cmp(b),
+            (Self::LongArray(a), Self::LongArray(b)) => a.cmp(b),
+            _ => self.tag().cmp(&other.tag()),
+        }
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -147,6 +173,12 @@ impl PartialEq for Value {
             (Self::LongArray(a), Self::LongArray(b)) => a == b,
             _ => false,
         }
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -240,6 +272,38 @@ impl List {
     }
 }
 
+impl Eq for List {}
+
+/// By element type, then by elements; floats by their bits, as [`PartialEq`] compares them.
+impl Ord for List {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::End, Self::End) => Ordering::Equal,
+            (Self::Byte(a), Self::Byte(b)) => a.cmp(b),
+            (Self::Short(a), Self::Short(b)) => a.cmp(b),
+            (Self::Int(a), Self::Int(b)) => a.cmp(b),
+            (Self::Long(a), Self::Long(b)) => a.cmp(b),
+            (Self::Float(a), Self::Float(b)) => a
+                .iter()
+                .copied()
+                .map(f32::to_bits)
+                .cmp(b.iter().copied().map(f32::to_bits)),
+            (Self::Double(a), Self::Double(b)) => a
+                .iter()
+                .copied()
+                .map(f64::to_bits)
+                .cmp(b.iter().copied().map(f64::to_bits)),
+            (Self::ByteArray(a), Self::ByteArray(b)) => a.cmp(b),
+            (Self::String(a), Self::String(b)) => a.cmp(b),
+            (Self::List(a), Self::List(b)) => a.cmp(b),
+            (Self::Compound(a), Self::Compound(b)) => a.cmp(b),
+            (Self::IntArray(a), Self::IntArray(b)) => a.cmp(b),
+            (Self::LongArray(a), Self::LongArray(b)) => a.cmp(b),
+            _ => self.tag().cmp(&other.tag()),
+        }
+    }
+}
+
 impl PartialEq for List {
     fn eq(&self, other: &Self) -> bool {
         fn same_bits<A: Copy>(a: &[A], b: &[A], bits: impl Fn(A) -> u64) -> bool {
@@ -261,6 +325,12 @@ impl PartialEq for List {
             (Self::LongArray(a), Self::LongArray(b)) => a == b,
             _ => false,
         }
+    }
+}
+
+impl PartialOrd for List {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -922,6 +992,13 @@ impl StaticList {
 }
 
 impl Reader<'_> {
+    /// Reads a root compound ([`Self::nbt`]) into an `Arc` for a packet field the server shares
+    /// between packets, taking the `Arc`'s allocation from the budget too.
+    pub(crate) fn shared_nbt(&mut self, encoding: Encoding) -> Result<Arc<Compound>> {
+        self.limit(1, 1, size_of::<([usize; 2], Compound)>())?;
+        self.nbt(encoding).map(Arc::new)
+    }
+
     /// Reads a root compound (`NBT`). A lone `TAG_End` reads as an empty compound (gophertunnel
     /// `AllowZero`).
     pub(crate) fn nbt(&mut self, encoding: Encoding) -> Result<Compound> {
@@ -1289,6 +1366,34 @@ mod tests {
         assert_ne!(List::Float(vec![0.0]), List::Float(vec![-0.0]));
         assert_ne!(List::Double(vec![0.0]), List::Double(vec![-0.0]));
         assert_ne!(Value::Int(1), Value::Long(1));
+    }
+
+    /// The order agrees with equality and is antisymmetric for every tag and random compounds,
+    /// floats included by their bits.
+    #[test]
+    fn the_order_agrees_with_equality() {
+        let mut rng = crate::protocol::Rng(17);
+        let mut roots = vec![every_tag(), Compound::new(), sample()];
+        roots.extend(
+            every_tag()
+                .into_iter()
+                .map(|(key, value)| Compound::from([(key, value)])),
+        );
+        roots.extend([
+            Compound::from([("f".to_owned(), Value::Float(0.0))]),
+            Compound::from([("f".to_owned(), Value::Float(-0.0))]),
+            Compound::from([("f".to_owned(), Value::Float(f32::NAN))]),
+            Compound::from([("f".to_owned(), Value::Double(0.0))]),
+            Compound::from([("f".to_owned(), Value::List(List::Double(vec![-0.0])))]),
+            Compound::from([("f".to_owned(), Value::List(List::Double(vec![0.0])))]),
+        ]);
+        roots.extend((0..200).map(|_| crate::storage::codec::tests::random_compound(&mut rng, 3)));
+        for a in &roots {
+            for b in &roots {
+                assert_eq!(a.cmp(b) == Ordering::Equal, a == b, "{a:?} {b:?}");
+                assert_eq!(a.cmp(b), b.cmp(a).reverse(), "{a:?} {b:?}");
+            }
+        }
     }
 
     /// A static compound equals a compound with the same entries and no others, without a

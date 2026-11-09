@@ -731,7 +731,7 @@ impl Codec for crate::permission::BanEntry {
     fn encode(&self, w: &mut Writer) {
         w.text(self.name());
         self.ip_address().encode(w);
-        w.text(self.reason());
+        w.text(self.reason().unwrap_or_default());
         w.text(self.source());
         self.created().encode(w);
         self.expires().encode(w);
@@ -1073,7 +1073,7 @@ impl Codec for crate::item::Type {
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         crate::item::Stack::decode(r)?
-            .item()
+            .item_type()
             .ok_or(Error::Format("item type"))
     }
 }
@@ -1180,6 +1180,7 @@ impl State {
             names: _,
             uuids: _,
             addresses: _,
+            world_players: _,
             listeners: _,
             tasks,
             data,

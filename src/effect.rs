@@ -6,6 +6,7 @@ mod table;
 pub use table::{Potion, Type};
 
 use crate::nbt::{Compound, Value};
+use crate::protocol::Rgba;
 
 /// The key of an instance's ambient flag in its saved form.
 const AMBIENT: &str = "Ambient";
@@ -113,9 +114,9 @@ impl Instance {
         !(self.amplifier < old.amplifier || (self.amplifier == old.amplifier && ends_sooner))
     }
 
-    /// The particle colour: the effect type's (red, green, blue, alpha).
+    /// The particle colour: the effect type's.
     #[doc(alias = "EffectInstance::getColor")]
-    pub fn colour(self) -> [u8; 4] {
+    pub fn colour(self) -> Rgba {
         self.effect.colour()
     }
 
@@ -234,8 +235,7 @@ impl Instance {
 struct Data {
     id: u8,
     text: &'static str,
-    /// Red, green, blue, alpha.
-    colour: [u8; 4],
+    colour: Rgba,
     bad: bool,
     instant: bool,
     default_duration: u32,
@@ -243,10 +243,11 @@ struct Data {
 }
 
 impl Data {
+    /// A row; the generated table gives the colour as red, green, blue, alpha.
     const fn new(
         id: u8,
         text: &'static str,
-        colour: [u8; 4],
+        [r, g, b, a]: [u8; 4],
         bad: bool,
         instant: bool,
         default_duration: u32,
@@ -255,7 +256,7 @@ impl Data {
         Self {
             id,
             text,
-            colour,
+            colour: Rgba { r, g, b, a },
             bad,
             instant,
             default_duration,
@@ -291,9 +292,9 @@ impl Type {
         &table::TYPES
     }
 
-    /// The particle colour: red, green, blue, alpha.
+    /// The particle colour.
     #[doc(alias = "Effect::getColor")]
-    pub fn colour(self) -> [u8; 4] {
+    pub fn colour(self) -> Rgba {
         self.data().colour
     }
 
@@ -401,7 +402,7 @@ impl Potion {
 /// The colour of the bubbles `effects` show: the mean of the colour of each visible effect with
 /// bubbles, counted once per level; `None` (transparent black) without one.
 #[doc(alias = "EffectCollection::getBubbleColor")]
-pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
+pub fn bubble_colour(effects: &[Instance]) -> Option<Rgba> {
     mix(effects.iter().filter(|e| shows_bubbles(e)))
 }
 
@@ -419,18 +420,20 @@ pub(crate) fn shows_bubbles(e: &Instance) -> bool {
 }
 
 /// The mean colour of `effects`, each counted once per level (integer means per channel); `None` without an effect.
-pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<[u8; 4]> {
+pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<Rgba> {
     let mut sum = [0_u32; 4];
-    let mut n = 0_u32;
-    for e in effects {
-        let level = u32::from(e.level());
-        for (s, c) in sum.iter_mut().zip(e.colour()) {
-            *s = s.saturating_add(u32::from(c).saturating_mul(level));
+    let mut levels = 0_u32;
+    for instance in effects {
+        let level = u32::from(instance.level());
+        let Rgba { r, g, b, a } = instance.colour();
+        for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
+            *total = total.saturating_add(u32::from(channel).saturating_mul(level));
         }
-        n = n.saturating_add(level);
+        levels = levels.saturating_add(level);
     }
-    let n = std::num::NonZeroU32::new(n)?;
-    Some(sum.map(|s| u8::try_from(s / n).unwrap_or(u8::MAX)))
+    let levels = std::num::NonZeroU32::new(levels)?;
+    let [r, g, b, a] = sum.map(|total| u8::try_from(total / levels).unwrap_or(u8::MAX));
+    Some(Rgba { r, g, b, a })
 }
 
 #[cfg(test)]
@@ -475,7 +478,7 @@ mod tests {
             (Type::Regeneration, [0xcd, 0x5c, 0xab]),
             (Type::Weakness, [0x48, 0x4d, 0x48]),
         ] {
-            assert_eq!(t.colour(), [r, g, b, 255], "{t:?}");
+            assert_eq!(t.colour(), Rgba { r, g, b, a: 255 }, "{t:?}");
         }
         // Turtle master: slowness IV and resistance III, and its strong form.
         let turtle = |slowness, resistance| {
@@ -485,8 +488,9 @@ mod tests {
             ];
             mix(effects.iter())
         };
-        assert_eq!(turtle(3, 2), Some([0x8d, 0x82, 0xe6, 255]));
-        assert_eq!(turtle(5, 3), Some([0x8d, 0x85, 0xe6, 255]));
+        let opaque = |r, g, b| Some(Rgba { r, g, b, a: 255 });
+        assert_eq!(turtle(3, 2), opaque(0x8d, 0x82, 0xe6));
+        assert_eq!(turtle(5, 3), opaque(0x8d, 0x85, 0xe6));
     }
 
     // api: EffectIdMap::fromId, EffectIdMap::toId, PotionTypeIdMap::fromId, PotionTypeIdMap::toId
@@ -519,7 +523,15 @@ mod tests {
         assert_eq!(poison.default_duration_ticks(), 600);
         assert!(Type::InstantHealth.is_instant());
         assert_eq!(Type::InstantHealth.default_duration_ticks(), 1);
-        assert_eq!(Type::Absorption.colour(), [37, 82, 165, 255]);
+        assert_eq!(
+            Type::Absorption.colour(),
+            Rgba {
+                r: 37,
+                g: 82,
+                b: 165,
+                a: 255
+            }
+        );
         assert!(!Type::Darkness.has_bubbles());
         // Night vision is 3:00 (3,600 ticks), the long form 8:00.
         let [nv] = Potion::NightVision.effects() else {
@@ -587,8 +599,16 @@ mod tests {
         let poison = Type::Poison.instance();
         let mixed = bubble_colour(&[weak.with_amplifier(1), poison]).unwrap();
         let (s, p) = (Type::Speed.colour(), Type::Poison.colour());
-        let mean = |i: usize| u8::try_from((2 * u32::from(s[i]) + u32::from(p[i])) / 3).unwrap();
-        assert_eq!(mixed, [mean(0), mean(1), mean(2), mean(3)]);
+        let mean = |s: u8, p: u8| u8::try_from((2 * u32::from(s) + u32::from(p)) / 3).unwrap();
+        assert_eq!(
+            mixed,
+            Rgba {
+                r: mean(s.r, p.r),
+                g: mean(s.g, p.g),
+                b: mean(s.b, p.b),
+                a: mean(s.a, p.a)
+            }
+        );
         // Hidden effects and types without bubbles do not count.
         assert_eq!(bubble_colour(&[weak, poison.without_particles()]), Some(s));
         let darkness = Type::Darkness.instance();
@@ -638,7 +658,12 @@ mod tests {
             if !OFFICIAL_COLOURED.contains(t) {
                 assert_eq!(
                     t.colour(),
-                    [byte(&c["r"]), byte(&c["g"]), byte(&c["b"]), byte(&c["a"])]
+                    Rgba {
+                        r: byte(&c["r"]),
+                        g: byte(&c["g"]),
+                        b: byte(&c["b"]),
+                        a: byte(&c["a"])
+                    }
                 );
             }
             assert_eq!(Some(t.is_bad()), want["bad"].as_bool(), "{t:?}");

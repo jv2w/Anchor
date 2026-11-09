@@ -101,6 +101,7 @@ impl BlockEntities {
         self.chunks.get(&(world, pos.chunk()))?.entities.get(&pos)
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -866,6 +867,7 @@ impl BlockEntity {
         }
     }
 
+    /// Hashes the block entity as saved at `pos` (state hash).
     #[cfg(test)]
     fn hash_into(&self, h: &mut super::Fnv, pos: BlockPos) {
         let Self {
@@ -1517,7 +1519,7 @@ pub(super) fn with_block_data(
     let Some(entity) = state.rules.block_entities.get(world, pos) else {
         return stack;
     };
-    let Some(item) = stack.item() else {
+    let Some(item) = stack.item_type() else {
         return stack;
     };
     let mut tag = stack.tag().unwrap_or_default();

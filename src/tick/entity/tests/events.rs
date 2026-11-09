@@ -945,12 +945,12 @@ fn an_explosion_breaks_tnt_blocks_into_their_item_and_primes_none() {
         h.live().iter().all(|e| !matches!(e.kind, Kind::Tnt(_))),
         "no TNT is primed by the blast"
     );
-    let tnt = stack("minecraft:tnt", 1).item().unwrap();
+    let tnt = stack("minecraft:tnt", 1).item_type().unwrap();
     let dropped: u64 = h
         .live()
         .iter()
         .filter_map(|e| match &e.kind {
-            Kind::Item(i) if i.stack.item() == Some(tnt) => Some(u64::from(i.stack.count())),
+            Kind::Item(i) if i.stack.item_type() == Some(tnt) => Some(u64::from(i.stack.count())),
             _ => None,
         })
         .sum();
@@ -1051,7 +1051,7 @@ fn launches_and_bow_shots_ask_their_listeners() {
             assert_eq!(e.entity(), Actor::Player(player_id(1)));
             assert!(
                 e.bow()
-                    .item()
+                    .item_type()
                     .is_some_and(|t| t.is(crate::item::Class::Bow))
             );
             if mode(sw) == 3 {
@@ -1320,7 +1320,7 @@ fn a_landing_falling_block_asks_before_it_becomes_a_block() {
         Priority::Normal,
         move |e: &mut EntityBlockChange, cx: &mut Context<'_>| {
             assert!(cx.entity(e.entity()).is_some());
-            sink.push((e.block(), e.to(), e.pos()));
+            sink.push((e.old_block(), e.new_block(), e.pos()));
             match mode(sw) {
                 0 => e.cancel(),
                 1 => {

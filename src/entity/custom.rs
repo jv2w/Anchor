@@ -246,13 +246,16 @@ pub enum Error {
     },
     /// The entity does not live: it is dying.
     NotAlive,
-    /// The player is not online.
-    NotOnline,
+    /// The player is not in the game: it has left, or has not joined yet.
+    Offline,
     /// The entity was not spawned: the world does not exist, the position is not finite, outside
     /// the world border or not loaded, or the world is at its entity limit.
     NotSpawned,
     /// A value is outside the range the call allows, or is not a number.
     OutOfRange,
+    /// A name (a name tag, an owner or thrower, a human NPC's name) is longer than
+    /// [`MAX_NAME_TAG_BYTES`](crate::entity::MAX_NAME_TAG_BYTES).
+    TooLong,
     /// The entity is of another kind than the call works on.
     WrongKind,
 }
@@ -277,9 +280,10 @@ impl fmt::Display for Error {
                 write!(f, "no custom entity type is named {identifier:?}")
             }
             Self::NotAlive => f.write_str("the entity is not alive"),
-            Self::NotOnline => f.write_str("the player is not online"),
+            Self::Offline => f.write_str("the player is not in the game"),
             Self::NotSpawned => f.write_str("the entity could not be spawned there"),
             Self::OutOfRange => f.write_str("a value is out of range"),
+            Self::TooLong => f.write_str("the name is too long"),
             Self::WrongKind => f.write_str("the entity is of another kind"),
         }
     }

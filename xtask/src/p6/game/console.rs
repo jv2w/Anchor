@@ -677,7 +677,7 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
             done(cx.set_difficulty(*difficulty).map_err(|e| e.to_string()))
         }
         Command::Lightning { pos } => {
-            let official = world::Lightning { damage: true };
+            let official = world::Lightning::new().harmful();
             done(
                 cx.strike_lightning(world::Id::DEFAULT, *pos, official)
                     .map_err(|e| e.to_string()),
@@ -839,11 +839,17 @@ mod tests {
         };
         let counts: Vec<u8> = stacks.iter().map(Stack::count).collect();
         assert_eq!(counts, [64, 36]);
-        assert_eq!(stacks[0].item().map(Type::name), Some("minecraft:emerald"));
+        assert_eq!(
+            stacks[0].item_type().map(Type::name),
+            Some("minecraft:emerald")
+        );
         let Ok(Command::Give { stacks, .. }) = parse("give P6Trade oak_log 4") else {
             panic!("block item");
         };
-        assert_eq!(stacks[0].item().map(Type::name), Some("minecraft:oak_log"));
+        assert_eq!(
+            stacks[0].item_type().map(Type::name),
+            Some("minecraft:oak_log")
+        );
         let Ok(Command::Fill { from, to, state }) =
             parse(r#"setblock -10 -60 -4 chest ["minecraft:cardinal_direction"="west"]"#)
         else {
@@ -960,9 +966,9 @@ mod tests {
             .iter()
             .map(|o| {
                 (
-                    o.buy().item().map_or("", |t| t.name()),
+                    o.buy().item_type().map_or("", |t| t.name()),
                     o.buy().count(),
-                    o.sell().item().map_or("", |t| t.name()),
+                    o.sell().item_type().map_or("", |t| t.name()),
                     o.sell().count(),
                     o.trader_xp(),
                 )

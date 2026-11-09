@@ -284,14 +284,14 @@ impl Stack {
 
     /// The item type, `None` for an empty stack.
     #[inline]
-    pub fn item(&self) -> Option<Type> {
+    pub fn item_type(&self) -> Option<Type> {
         self.item
     }
 
-    /// The most items a stack of this type holds (0 for an empty stack).
+    /// The most items a stack of this type holds; `None` for an empty stack.
     #[inline]
-    pub fn max_stack_size(&self) -> u8 {
-        self.item.map_or(0, Type::max_stack_size)
+    pub fn max_stack_size(&self) -> Option<u8> {
+        self.item.map(Type::max_stack_size)
     }
 
     /// The meta of the stack's outside forms: 0 for an item that wears (its durability is in the
@@ -1159,6 +1159,8 @@ mod tests {
     fn getters_read_what_the_with_methods_set() {
         let pearls = Stack::new(kind(Kind::EnderPearl), 10);
         assert!(!pearls.is_empty() && Stack::EMPTY.is_empty());
+        assert_eq!(pearls.max_stack_size(), Some(16));
+        assert_eq!(Stack::EMPTY.max_stack_size(), None);
         assert_eq!(pearls.count(), 10);
         assert_eq!(pearls.with_count(3).count(), 3);
         assert_eq!(

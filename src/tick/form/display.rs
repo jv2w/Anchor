@@ -17,7 +17,7 @@ use crate::display::{
 use crate::player;
 use crate::protocol::consts::{BossEventOverlay, BossEventType, ScoreboardIdentity};
 use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObjective, SetScore};
-use crate::protocol::{BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN, ScoreboardEntry};
+use crate::protocol::{MAX_BOSS_EVENT_BOSS_BAR_TITLE, ScoreboardEntry};
 use crate::tick::checkpoint;
 
 /// Colour codes that fill empty text lines, so that each is its own blank line.
@@ -34,6 +34,7 @@ pub(super) struct Shown {
 }
 
 impl Shown {
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self { boards, bar } = self;
@@ -160,7 +161,7 @@ impl Context<'_> {
     /// [`Error::TooLong`] for a bar whose title is longer than 256 bytes.
     /// [`Error::Offline`] for a player who is not in the game, checked after the title.
     pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
-        if bar.title.len() > BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN {
+        if bar.title.len() > MAX_BOSS_EVENT_BOSS_BAR_TITLE {
             return Err(Error::TooLong);
         }
         let (p, open) = open(self.state, player).ok_or(Error::Offline)?;

@@ -83,7 +83,7 @@ impl UserData {
     }
 
     /// Hashes the server values and every player's data values by their JSON, and how many
-    /// extensions each player holds (state hash; extensions are not serializable).
+    /// extensions each player holds (state hash). Extensions are not serializable.
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(
         &self,
@@ -659,6 +659,9 @@ pub(super) mod tests {
             })
             .expect("a snapshot");
         crate::tick::save::committed(state, &mut log, snapshot.start);
+        // The boundary of the tick that learns of the commit hands what it let go of to the save
+        // thread.
+        boundary(state, &mut Output::default(), &mut log);
         snapshot
     }
 

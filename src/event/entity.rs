@@ -57,8 +57,8 @@ pub struct EntityBlockChange {
     pub(crate) entity: entity::Id,
     pub(crate) world: world::Id,
     pub(crate) pos: BlockPos,
-    pub(crate) block: State,
-    pub(crate) to: State,
+    pub(crate) old_block: State,
+    pub(crate) new_block: State,
     pub(crate) cancelled: bool,
 }
 
@@ -71,10 +71,10 @@ getters!(EntityBlockChange {
     pos: BlockPos,
     /// The block before.
     #[doc(alias = "EntityBlockChangeEvent::getBlock")]
-    block: State,
+    old_block: State,
     /// The block after.
     #[doc(alias = "EntityBlockChangeEvent::getTo")]
-    to: State,
+    new_block: State,
 });
 
 cancellable! {
@@ -1163,12 +1163,12 @@ mod tests {
             entity: entity(1),
             world: WORLD,
             pos: POS,
-            block: AIR,
-            to: DIRT,
+            old_block: AIR,
+            new_block: DIRT,
             cancelled: false,
         };
         assert_eq!(
-            (e.entity(), e.world(), e.pos(), e.block(), e.to()),
+            (e.entity(), e.world(), e.pos(), e.old_block(), e.new_block()),
             (entity(1), WORLD, POS, AIR, DIRT)
         );
         e.cancel();

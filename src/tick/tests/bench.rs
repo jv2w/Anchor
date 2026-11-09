@@ -161,7 +161,7 @@ impl Bench {
     /// Runs one tick of `inputs` and records its time: the step, the delivery and the boundary.
     #[expect(
         clippy::disallowed_methods,
-        reason = "consistency: a measurement reads the wall clock"
+        reason = "off-tick: a measurement reads the wall clock"
     )]
     fn tick(&mut self, mut inputs: Vec<Input>) {
         let mut answers = std::mem::take(&mut self.output.answers);

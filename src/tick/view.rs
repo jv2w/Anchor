@@ -39,7 +39,7 @@ use crate::protocol::packet::{
     UpdateBlock, UpdateSubChunkBlocks,
 };
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
-use crate::save::{Loaded, Request, WorldIndex};
+use crate::save::{ChunkExtras, Loaded, Request, WorldIndex};
 use crate::world::{
     BlockPos, Chunk, ChunkPos, Entry, Kind, MIN_SUB_CHUNK_Y, NO_HEIGHT, SPAWN_CHUNK_RADIUS,
     SUB_CHUNKS, World,
@@ -88,7 +88,7 @@ const NOT_LOADED_HEIGHT_MAP: (HeightMapData, Option<HeightMap>) = (HeightMapData
 /// (the Mojang limit), which the generator checks is no less than what one request holds, so
 /// every request fits a tick; it is more than the 256 × 24 sub-chunks of the most chunks
 /// `chunks-per-tick` sends a tick.
-const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN;
+const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::MAX_SUB_CHUNK_SUB_CHUNK_ENTRIES;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
 /// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
 /// sends a tick.
@@ -155,7 +155,7 @@ impl View {
         self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
     }
 
-    /// Hashes what the view decides, for the state hash of tests.
+    /// Hashes what the view decides (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The unsent chunks follow from the center, the radius and the sent chunks, the queued
@@ -567,10 +567,10 @@ pub(super) struct Chunks {
     /// Chunks of `unsaved` wanted this tick, which the view phase brings back ([`bring_back`]);
     /// empty between ticks. At most [`MAX_RETURNS_PER_TICK`].
     returning: BTreeSet<Key>,
-    /// Chunks the tick let go of, freed off the tick by the save thread
+    /// Chunks the tick let go of, with their extras, freed off the tick by the save thread
     /// ([`Request::Discard`]): a released view lets go of a whole disc at once. Empty between
     /// ticks.
-    pub(super) discarded: Vec<Chunk>,
+    pub(super) discarded: Vec<(Chunk, ChunkExtras)>,
     /// The extras of the loaded chunks.
     pub(super) extras: Extras,
     /// The spawn whose 3 × 3 chunks are held for each place's world, by place: the world's spawn,
@@ -617,11 +617,16 @@ pub(super) struct Chunks {
     pub(super) stale: BTreeMap<Key, u32>,
     /// The order of the views' chunks, fixed with the server.
     pub(super) disc: Disc,
+    /// The tick centers [`gather_tick_centers`] gathered last, kept so gathering them does not allocate
+    /// every tick: at most one per player. Gathered again before each use, so neither saved nor
+    /// hashed.
+    pub(super) centers: Vec<Key>,
 }
 
 impl Chunks {
     /// Writes what lasts between ticks; the batch, the returning, discarded, loaded and sent
-    /// chunks are empty then, and the events heard and the view order are fixed at build.
+    /// chunks are empty then, the events heard and the view order are fixed at build, and the
+    /// tick centers are gathered again before each use.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
         let Self {
@@ -646,6 +651,7 @@ impl Chunks {
             waiting,
             stale,
             disc: _,
+            centers: _,
         } = self;
         interest.encode(w);
         requested.encode(w);
@@ -670,11 +676,12 @@ impl Chunks {
         self.interest.contains_key(&key)
     }
 
-    /// Hashes what lasts between ticks, for the state hash of tests.
+    /// Hashes what lasts between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The batch, the returning, discarded, loaded and sent chunks are empty between ticks;
-        // the events heard and the view order are fixed.
+        // the events heard and the view order are fixed; the tick centers are gathered again
+        // before each use.
         let Self {
             interest,
             requested,
@@ -697,6 +704,7 @@ impl Chunks {
             waiting,
             stale,
             disc: _,
+            centers: _,
         } = self;
         let key = |h: &mut super::Fnv, &(w, p): &Key| {
             h.usize(w);
@@ -865,6 +873,7 @@ impl Chunks {
                 offsets: std::mem::take(&mut self.disc.offsets),
                 ranks: std::mem::take(&mut self.disc.ranks),
             },
+            centers: Vec::new(),
         };
         for (&n, ticket) in &self.tickets {
             self.by_chunk
@@ -1058,7 +1067,7 @@ impl Context<'_> {
     ///
     /// [`world::Error::WorldNotLoaded`](crate::world::Error::WorldNotLoaded) for a world that is
     /// not loaded.
-    /// [`world::Error::OutOfRange`](crate::world::Error::OutOfRange) for a center outside the
+    /// [`world::Error::OutsideWorld`](crate::world::Error::OutsideWorld) for a center outside the
     /// world border.
     /// [`world::Error::Full`](crate::world::Error::Full) for a radius over [`MAX_TICKET_RADIUS`],
     /// past [`MAX_TICKETS`] tickets, or past [`MAX_TICKET_CHUNKS`] chunks the tickets hold
@@ -1076,7 +1085,7 @@ impl Context<'_> {
         use crate::world::Error;
         let w = world_api::index(self.state, world).ok_or(Error::WorldNotLoaded)?;
         if !crate::world::is_inside_border(center) {
-            return Err(Error::OutOfRange);
+            return Err(Error::OutsideWorld);
         }
         let held = self.state.chunks.by_chunk.len();
         if radius > MAX_TICKET_RADIUS
@@ -1911,7 +1920,7 @@ fn unload(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, saving: &
             },
         );
     } else {
-        chunks.discarded.push(chunk);
+        chunks.discarded.push((chunk, extras.into_extras()));
     }
 }
 
@@ -2338,18 +2347,30 @@ fn has_water(chunk: &Chunk) -> bool {
     })
 }
 
-/// The chunks the players whose view is open stand in, by world: the centers of the
-/// areas within `tick-radius` ([`in_disc`]) where blocks and entities tick. A player whose view
-/// is not open yet has been sent nothing that would tick.
-pub(super) fn tick_centers(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
-    let mut centers: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
-    for player in state.players.values().filter(|p| p.view.is_open()) {
-        centers
-            .entry(player.world)
-            .or_default()
-            .insert(chunk_of(player.position));
-    }
-    centers
+/// Gathers into [`Chunks::centers`] the chunks the players whose view is open stand in, sorted by
+/// world then chunk, each once: the centers of the areas within `tick-radius` ([`in_disc`]) where
+/// blocks and entities tick. A player whose view is not open yet has been sent nothing that would
+/// tick.
+pub(super) fn gather_tick_centers(state: &mut State) {
+    let centers = &mut state.chunks.centers;
+    centers.clear();
+    centers.extend(
+        state
+            .players
+            .values()
+            .filter(|p| p.view.is_open())
+            .map(|p| (p.world, chunk_of(p.position))),
+    );
+    centers.sort_unstable();
+    centers.dedup();
+}
+
+/// The tick centers [`gather_tick_centers`] gathered last for `world`, in chunk order.
+pub(super) fn tick_centers_in(state: &State, world: WorldIndex) -> &[Key] {
+    let centers = &state.chunks.centers;
+    let start = centers.partition_point(|&(w, _)| w < world);
+    let end = centers.partition_point(|&(w, _)| w <= world);
+    centers.get(start..end).unwrap_or_default()
 }
 
 /// The chunk an eye position is in. Positions are finite (checked when they arrive).
@@ -2721,6 +2742,33 @@ mod tests {
             })
             .sum();
         assert_eq!(freed, 1);
+    }
+
+    /// A chunk waiting in memory for a commit goes, once the commit holds it, to the save thread
+    /// with its extras: the tick frees none of them.
+    #[test]
+    fn a_committed_chunk_goes_to_the_save_thread_with_its_extras() {
+        let mut state = state(Listeners::default());
+        // A chunk the sample gives every kind of extras.
+        hold_loaded(&mut state, FAR);
+        unload_changed(&mut state, &[FAR]);
+        let mut log = crate::tick::log::InputLog::default();
+        state.saving.requested = true;
+        let Some(Request::Commit(snapshot)) =
+            crate::tick::save::snapshot(&mut state, &mut log, false)
+        else {
+            panic!("a snapshot was asked for");
+        };
+        crate::tick::save::committed(&mut state, &mut log, snapshot.start);
+        assert!(state.chunks.unsaved.is_empty());
+        let [(_, extras)] = &state.chunks.discarded[..] else {
+            panic!("one chunk discarded, not {}", state.chunks.discarded.len());
+        };
+        assert!(
+            crate::storage::ChunkKind::EXTRAS
+                .iter()
+                .all(|&kind| !extras.get(kind).is_empty())
+        );
     }
 
     // api: ChunkLoadEvent, ChunkPopulateEvent

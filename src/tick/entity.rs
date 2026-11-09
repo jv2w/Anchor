@@ -134,13 +134,13 @@ use physics::{Body, Inside, Step};
 
 /// Ticks within which a weaker hit on an entity or a player does nothing.
 pub(super) const ATTACK_COOLDOWN_TICKS: u8 = 10;
-/// The random stream (`crate::random`) of a death's drops.
+/// The random stream of a death's drops.
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
 /// The upward motion of a dropped item.
 const DROP_LIFT: f64 = 0.2;
 /// The pickup delay of a dropped item, in ticks.
 const DROP_PICKUP_DELAY_TICKS: i16 = 10;
-/// The random stream (`crate::random`) of a drop.
+/// The random stream of a drop.
 const DROP_RANDOM: u64 = random::tag("entity-drop");
 /// The overlap two boxes need to touch.
 pub(super) const EPSILON: f64 = 0.000_01;
@@ -223,7 +223,7 @@ pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
 pub(super) const TNT_FUSE_TICKS: u16 = 80;
 /// The square of the turn in degrees (yaw and pitch together) that is sent.
 const TURN_SQUARED: f64 = 1.0;
-/// The random stream (`crate::random`) of unsticking.
+/// The random stream of unsticking.
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 /// Damage the void deals an entity or a player each tick.
 pub(super) const VOID_DAMAGE: f64 = 10.0;
@@ -509,6 +509,7 @@ impl Entity {
         burn_ticks(seconds) > self.fire_ticks && !self.kind.is_fire_proof()
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -889,6 +890,7 @@ impl Watched {
         self.armor.iter().zip(&before.armor).all(|(a, b)| a.same(b))
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -1070,6 +1072,7 @@ impl Entities {
         self.counts.get(&world).copied().unwrap_or(0)
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     #[expect(
         clippy::too_many_lines,
@@ -1965,6 +1968,7 @@ fn announce(state: &mut State) {
 /// builds its input itself, so the tick thread only lists the entities.
 fn compute(state: &mut State, pool: &Pool, steps: &mut Vec<Computed>) {
     let mut ids = std::mem::take(&mut state.rules.entities.ticking);
+    super::view::gather_tick_centers(state);
     ticking(state, &mut ids);
     let (slots, worlds, tick) = (&state.rules.entities.slots, &state.worlds, state.tick);
     pool.map_into(&ids, steps, |&id| {
@@ -2056,20 +2060,23 @@ fn assign_runtime_ids(state: &mut State) {
 }
 
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
-/// world whose view is open (as blocks, [`super::view::tick_centers`]), with a runtime ID and
-/// not flagged, put in `ids` (emptied first) in `Id` order.
+/// world whose view is open (as blocks, as [`super::view::gather_tick_centers`] gathered them),
+/// with a runtime ID and not flagged, put in `ids` (emptied first) in `Id` order.
 fn ticking(state: &State, ids: &mut Vec<Id>) {
     let entities = &state.rules.entities;
     ids.clear();
     // By world, so only the columns of worlds with players are walked, each against its own.
-    for (world, centers) in super::view::tick_centers(state) {
+    for centers in state.chunks.centers.chunk_by(|a, b| a.0 == b.0) {
+        let Some(&(world, _)) = centers.first() else {
+            continue;
+        };
         let radius = state.settings.view(world).tick_radius;
         let all =
             (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
         for (&(_, pos), column) in entities.columns.range(all) {
             let near = centers
                 .iter()
-                .any(|&c| super::view::in_disc(c, pos, radius));
+                .any(|&(_, c)| super::view::in_disc(c, pos, radius));
             if near {
                 ids.extend(column.ids.iter().copied().filter(|&id| {
                     entities
@@ -2955,13 +2962,18 @@ fn is_mergeable(a: &Item, b: &Item) -> bool {
     is_merge_candidate(a)
         && is_merge_candidate(b)
         && a.stack.can_stack_with(&b.stack)
-        && u16::from(a.stack.count()) + u16::from(b.stack.count())
-            <= u16::from(a.stack.max_stack_size())
+        && a.stack.max_stack_size().is_some_and(|max| {
+            u16::from(a.stack.count()) + u16::from(b.stack.count()) <= u16::from(max)
+        })
 }
 
 /// Whether the item can merge: it can be picked up and its stack is not full.
 fn is_merge_candidate(item: &Item) -> bool {
-    item.pickup_delay_ticks != NEVER && item.stack.count() < item.stack.max_stack_size()
+    item.pickup_delay_ticks != NEVER
+        && item
+            .stack
+            .max_stack_size()
+            .is_some_and(|max| item.stack.count() < max)
 }
 
 /// The item data of an unflagged dropped item.
@@ -3223,8 +3235,8 @@ fn land(
             entity: id,
             world: world::Id::of(world),
             pos,
-            block: before,
-            to,
+            old_block: before,
+            new_block: to,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -4282,7 +4294,7 @@ pub(super) fn hatch(
     yaw: f64,
     egg: &Stack,
 ) -> Placed {
-    let npc = match egg.item().and_then(crate::item::Type::kind) {
+    let npc = match egg.item_type().and_then(crate::item::Type::kind) {
         Some(crate::item::Kind::ZombieSpawnEgg) => Npc::Zombie,
         Some(crate::item::Kind::VillagerSpawnEgg) => Npc::Villager {
             profession: 0,
@@ -5169,7 +5181,8 @@ mod tests {
                 for _ in 0..3 {
                     let s = stack(kinds[rng.below(3)], 1);
                     let s = s.with_count(
-                        u8::try_from(rng.below(usize::from(s.max_stack_size())) + 1).unwrap(),
+                        u8::try_from(rng.below(usize::from(s.max_stack_size().unwrap())) + 1)
+                            .unwrap(),
                     );
                     let x = f64::from(u32::try_from(rng.below(24)).unwrap()) - 12.0;
                     let z = f64::from(u32::try_from(rng.below(24)).unwrap()) - 12.0;
@@ -5207,9 +5220,14 @@ mod tests {
             .filter(|p| matches!(p, Packet::ActorEvent(_)))
             .count();
         assert!(merges > 0);
-        assert!(h.live().iter().all(|e| match &e.kind {
-            Kind::Item(i) => i.stack.count() <= i.stack.max_stack_size(),
-            _ => true,
+        assert!(h.live().iter().all(|e| {
+            match &e.kind {
+                Kind::Item(i) => i
+                    .stack
+                    .max_stack_size()
+                    .is_some_and(|max| i.stack.count() <= max),
+                _ => true,
+            }
         }));
     }
 
@@ -5500,7 +5518,7 @@ mod tests {
         let left = h.live();
         assert_eq!(left.len(), 1, "{left:?}");
         assert!(
-            matches!(&left[0].kind, Kind::Item(i) if i.stack.item().unwrap().name() == "minecraft:netherite_ingot")
+            matches!(&left[0].kind, Kind::Item(i) if i.stack.item_type().unwrap().name() == "minecraft:netherite_ingot")
         );
     }
 
@@ -5564,7 +5582,7 @@ mod tests {
         let left = h.live();
         assert_eq!(left.len(), 1, "the sand on the torch dropped as an item");
         assert!(
-            matches!(&left[0].kind, Kind::Item(i) if i.stack.item().unwrap().name() == "minecraft:sand")
+            matches!(&left[0].kind, Kind::Item(i) if i.stack.item_type().unwrap().name() == "minecraft:sand")
         );
     }
 
@@ -6880,8 +6898,11 @@ mod tests {
     #[ignore = "measurement"]
     #[expect(
         clippy::print_stderr,
+        reason = "consistency: a measurement prints its result"
+    )]
+    #[expect(
         clippy::disallowed_methods,
-        reason = "consistency: a measurement prints its result and reads the wall clock"
+        reason = "off-tick: a measurement reads the wall clock"
     )]
     fn tick_cost() {
         let most = crate::runtime::logical_cpus().max(4);

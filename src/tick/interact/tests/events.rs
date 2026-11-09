@@ -65,7 +65,7 @@ fn ground(h: &mut Harness, item: crate::item::Type) -> (u32, u32) {
             for c in h.state.rules.entities.unload(key).unwrap_or_default() {
                 if let Some(Value::Compound(s)) = c.get("Item")
                     && let Some(stack) = Stack::from_nbt(s)
-                    && stack.item() == Some(item)
+                    && stack.item_type() == Some(item)
                 {
                     items += u32::from(stack.count());
                 }
@@ -94,7 +94,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops() {
                 e.pos(),
                 e.block(),
                 e.item().clone(),
-                e.insta_break(),
+                e.is_insta_break(),
                 e.drops().to_vec(),
             ),
         );
@@ -131,7 +131,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops() {
         [dbg(block::AIR)],
         "the monitor sees the block gone"
     );
-    assert_eq!(ground(&mut h, flower.item().unwrap()), (0, 0));
+    assert_eq!(ground(&mut h, flower.item_type().unwrap()), (0, 0));
     let mut h2 = Harness::new(|_| {});
     h2.set(TARGET, dandelion());
     h2.act(vec![action(
@@ -140,7 +140,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops() {
         Face::West,
     )]);
     assert_eq!(
-        ground(&mut h2, flower.item().unwrap()),
+        ground(&mut h2, flower.item_type().unwrap()),
         (1, 0),
         "without listeners"
     );
@@ -249,7 +249,7 @@ fn a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break() {
             Face::West,
         )]);
         assert_eq!(h.block(TARGET), left);
-        let flower = block_item(Kind::Dandelion, 1).item().unwrap();
+        let flower = block_item(Kind::Dandelion, 1).item_type().unwrap();
         assert_eq!(ground(&mut h, flower), (0, 0), "nothing dropped");
     }
 }
@@ -1057,7 +1057,7 @@ fn the_attack_action_raises_the_left_click_event() {
 #[test]
 fn actions_do_what_the_player_would_with_events() {
     let l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
-        note(SEEN, e.insta_break());
+        note(SEEN, e.is_insta_break());
     });
     let mut h = Harness::with(|_| {}, l);
     // Breaking dirt by hand takes time; the action breaks it now.
@@ -1205,7 +1205,7 @@ impl Chaos {
         let hand = player.inventory.held().clone();
         match self.next() % 6 {
             0 => return true,
-            1 if hand.item() == flower.item() => {
+            1 if hand.item_type() == flower.item_type() => {
                 self.vault += u32::from(hand.count());
                 inventory::set_held(player, Stack::EMPTY);
             }
@@ -1255,10 +1255,10 @@ fn meddle(cx: &mut Context<'_>, at: Option<BlockPos>) -> bool {
 
 /// Every flower: in the inventory, the vault, the world around the targets and on the ground.
 fn flowers(h: &mut Harness, chaos: Chaos) -> u32 {
-    let flower = block_item(Kind::Dandelion, 1).item().unwrap();
+    let flower = block_item(Kind::Dandelion, 1).item_type().unwrap();
     let carried: u32 = (0..36)
         .filter_map(|slot| h.player().inventory.main_stack(slot))
-        .filter(|s| s.item() == Some(flower))
+        .filter(|s| s.item_type() == Some(flower))
         .map(|s| u32::from(s.count()))
         .sum();
     let mut placed = 0;
@@ -1490,7 +1490,7 @@ fn a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick() {
 
 /// The diamonds in `stack`, those in a shulker box's items included.
 fn diamonds(stack: &Stack) -> u32 {
-    let own = if stack.item() == Some(ItemKind::Diamond.default_type()) {
+    let own = if stack.item_type() == Some(ItemKind::Diamond.default_type()) {
         u32::from(stack.count())
     } else {
         0
@@ -1861,7 +1861,7 @@ fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
 fn worn_out(kind: ItemKind) -> Stack {
     let tool = stack(kind);
     let max = tool
-        .item()
+        .item_type()
         .and_then(crate::item::Type::max_durability)
         .unwrap();
     tool.with_damage(max - 1).unwrap()

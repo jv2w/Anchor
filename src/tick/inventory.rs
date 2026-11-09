@@ -255,6 +255,7 @@ impl Inventory {
         self.cursor.stack(0)
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -1184,7 +1185,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
     let mut event = PlayerItemHeld {
         player: crate::player::Id::new(session),
         item: player.inventory.main.stack(slot).clone(),
-        slot,
+        slot: usize::from(slot),
         cancelled: false,
     };
     dispatch::call(state, &mut event);
@@ -1480,7 +1481,7 @@ fn arrow_slot(player: &Player) -> Option<SlotRef> {
 
 /// Whether a stack is arrows.
 fn is_arrow(stack: &Stack) -> bool {
-    stack.item().and_then(crate::item::Type::kind) == Some(crate::item::Kind::Arrow)
+    stack.item_type().and_then(crate::item::Type::kind) == Some(crate::item::Kind::Arrow)
 }
 
 /// Drops `count` items of main slot `slot` in front of the player (the legacy

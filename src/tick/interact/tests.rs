@@ -245,7 +245,7 @@ fn click(pos: BlockPos, face: Face, stack: &Stack) -> UseItemTransactionData {
         ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
-        stack.item().map_or(0, |t| i32::from(t.runtime_id()));
+        stack.item_type().map_or(0, |t| i32::from(t.runtime_id()));
     data.held_item.stack.count = u16::from(stack.count());
     data
 }
@@ -1361,7 +1361,7 @@ fn air(stack: &Stack) -> UseItemTransactionData {
         ..UseItemTransactionData::default()
     };
     data.held_item.stack.item_type.network_id =
-        stack.item().map_or(0, |t| i32::from(t.runtime_id()));
+        stack.item_type().map_or(0, |t| i32::from(t.runtime_id()));
     data.held_item.stack.count = u16::from(stack.count());
     data
 }
@@ -1797,7 +1797,7 @@ fn spawn_eggs_hatch_a_zombie_or_a_villager_and_are_used_up() {
             (
                 e.entity_type(),
                 e.position(),
-                e.name_tag().to_owned(),
+                e.name_tag().map(str::to_owned),
                 e.is_invulnerable(),
                 e.profession(),
             )
@@ -1808,17 +1808,11 @@ fn spawn_eggs_hatch_a_zombie_or_a_villager_and_are_used_up() {
     assert_eq!(
         found,
         [
-            (
-                crate::entity::Type::Villager,
-                middle,
-                String::new(),
-                false,
-                Some(0)
-            ),
+            (crate::entity::Type::Villager, middle, None, false, Some(0)),
             (
                 crate::entity::Type::Zombie,
                 middle,
-                "Bob".to_owned(),
+                Some("Bob".to_owned()),
                 false,
                 None
             ),

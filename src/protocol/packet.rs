@@ -8704,8 +8704,8 @@ pub struct UpdateTrade {
     pub new_trade_ui: bool,
     /// The demand based prices. Wire form: `Bool`.
     pub demand_based_prices: bool,
-    /// The serialised offers. Wire form: `Bytes`.
-    pub serialised_offers: Vec<u8>,
+    /// The serialised offers. Wire form: `NBT`. Shared by every packet the server sends it in: change it with [`Arc::make_mut`], which copies it only while others share it.
+    pub serialised_offers: Arc<nbt::Compound>,
 }
 
 impl Codec for UpdateTrade {
@@ -8720,7 +8720,7 @@ impl Codec for UpdateTrade {
             display_name: r.string()?,
             new_trade_ui: r.bool()?,
             demand_based_prices: r.bool()?,
-            serialised_offers: r.bytes()?,
+            serialised_offers: r.shared_nbt(nbt::Encoding::NetworkLittleEndian)?,
         })
     }
 
@@ -8734,7 +8734,7 @@ impl Codec for UpdateTrade {
         w.string(&self.display_name)?;
         w.bool(self.new_trade_ui);
         w.bool(self.demand_based_prices);
-        w.bytes(&self.serialised_offers);
+        w.nbt(&self.serialised_offers, nbt::Encoding::NetworkLittleEndian)?;
         Ok(())
     }
 }

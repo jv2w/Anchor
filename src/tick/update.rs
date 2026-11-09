@@ -19,8 +19,6 @@
 //!
 //! [`World::next_changed`]: crate::world::World::next_changed
 
-use std::collections::BTreeSet;
-
 use super::{Context, State, block_entity, entity, interact, view};
 use crate::block::Face;
 use crate::random::{self, Random};
@@ -30,12 +28,12 @@ use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, SUB_CHUNKS, TreeType,
 /// The most changed blocks a world follows up in one tick; the rest waits in the world's change
 /// feed.
 const MAX_CHANGES_PER_TICK: usize = 16_384;
-/// The random stream purpose of a random tick.
+/// The random stream of a random tick.
 const RANDOM_TICK: u64 = random::tag("random-tick");
 /// The random ticks of each sub-chunk that is not air, every tick: at most 5, as one draw of the
 /// stream gives 12 bits for each position.
 pub(in crate::tick) const RANDOM_TICKS_PER_SUB_CHUNK: u32 = 3;
-/// The random stream purpose of a tree the API grows.
+/// The random stream of a tree the API grows.
 const TREE: u64 = random::tag("tree");
 
 /// What block updates keep between ticks.
@@ -50,6 +48,7 @@ pub(super) struct Updates {
 }
 
 impl Updates {
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self { draws, ticking: _ } = self;
@@ -133,17 +132,17 @@ pub(super) fn tick(state: &mut State) {
     // other stream. The players' chunks are gathered once before the worlds rather than once per
     // world (the entity tick gathers its own after them), so a player a hook moves counts where it
     // stood until the next tick.
-    let centers = state
-        .custom
-        .has_random_ticks()
-        .then(|| view::tick_centers(state));
+    let random_ticks = state.custom.has_random_ticks();
+    if random_ticks {
+        view::gather_tick_centers(state);
+    }
     for at in 0..state.worlds.len() {
         let Some(world) = state.worlds.index_at(at).filter(|&w| state.is_awake(w)) else {
             continue;
         };
         run_changes(state, world);
-        if let Some(centers) = &centers {
-            run_random(state, world, centers.get(&world));
+        if random_ticks {
+            run_random(state, world);
         }
     }
 }
@@ -171,8 +170,9 @@ fn run_changes(state: &mut State, world: WorldIndex) {
     }
 }
 
-/// Runs the random ticks of `world` around `centers`, the chunks its players stand in.
-fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<ChunkPos>>) {
+/// Runs the random ticks of `world` around the chunks its players stand in, as
+/// [`view::gather_tick_centers`] gathered them.
+fn run_random(state: &mut State, world: WorldIndex) {
     let radius = state.settings.view(world).tick_radius;
     if radius == 0 {
         return;
@@ -181,6 +181,7 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
         return;
     };
     let mut chunks = std::mem::take(&mut state.rules.updates.ticking);
+    let centers = view::tick_centers_in(state, world);
     ticking_chunks(state, world, radius, centers, &mut chunks);
     for &chunk in &chunks {
         let k = random::key(
@@ -232,20 +233,20 @@ fn random_position(chunk: ChunkPos, base_y: i32, bits: u64) -> BlockPos {
 
 /// Fills `chunks` with the chunks of `world` that take random ticks, in order: within `radius`
 /// of `centers` ([`view::Disc::around`]), the chunks of the players in the world whose view is
-/// open ([`view::tick_centers`]), with their 3 × 3 neighbourhood loaded and lit. Players in one
+/// open ([`view::tick_centers_in`]), with their 3 × 3 neighbourhood loaded and lit. Players in one
 /// chunk share a center.
 fn ticking_chunks(
     state: &State,
     world: WorldIndex,
     radius: u8,
-    centers: Option<&BTreeSet<ChunkPos>>,
+    centers: &[view::Key],
     chunks: &mut Vec<ChunkPos>,
 ) {
     chunks.clear();
-    let (Some(w), Some(centers)) = (state.worlds.get(world), centers) else {
+    let Some(w) = state.worlds.get(world) else {
         return;
     };
-    for &c in centers {
+    for &(_, c) in centers {
         chunks.extend(state.chunks.disc.around(c, radius));
     }
     chunks.sort_unstable();
@@ -263,6 +264,7 @@ fn ticking_chunks(
 mod tests {
     use super::*;
 
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use crate::block::{Kind, PropertyValue};
@@ -556,14 +558,14 @@ mod tests {
                 }
             }
         }
-        let centers = BTreeSet::from([ChunkPos::new(0, 0), ChunkPos::new(3, -2)]);
+        let centers = [(0, ChunkPos::new(0, 0)), (0, ChunkPos::new(3, -2))];
         // One list for every radius, as the tick reuses it.
         let mut chunks = Vec::new();
         for radius in 1..=8 {
             let w = &state.worlds[0];
             let expected: Vec<ChunkPos> = centers
                 .iter()
-                .flat_map(|&c| view::disc(c, radius))
+                .flat_map(|&(_, c)| view::disc(c, radius))
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .filter(|c| {
@@ -576,7 +578,7 @@ mod tests {
                 })
                 .collect();
             assert!(!expected.is_empty());
-            ticking_chunks(&state, 0, radius, Some(&centers), &mut chunks);
+            ticking_chunks(&state, 0, radius, &centers, &mut chunks);
             assert_eq!(chunks, expected, "{radius}");
         }
     }

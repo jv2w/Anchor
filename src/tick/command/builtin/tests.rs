@@ -348,7 +348,10 @@ fn ban_and_unban_keep_the_list_and_kick_the_online_player() {
     );
     let cx = Context { state: &mut state };
     let ban = cx.ban_entry("player2").unwrap();
-    assert_eq!((ban.reason(), ban.source()), ("too much spam", "player1"));
+    assert_eq!(
+        (ban.reason(), ban.source()),
+        (Some("too much spam"), "player1")
+    );
     let (_, last) = chat(&mut state, &mut rx[1]);
     assert_eq!(
         kicked_with(last),
@@ -698,7 +701,7 @@ fn clear_counts_and_takes_items_from_every_slot() {
     let left: Vec<(Option<item::Type>, u8)> = (0..3)
         .map(|i| {
             let s = inv.main_stack(i).unwrap();
-            (s.item(), s.count())
+            (s.item_type(), s.count())
         })
         .collect();
     assert_eq!(

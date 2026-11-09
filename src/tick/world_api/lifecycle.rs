@@ -198,6 +198,7 @@ impl Catalog {
         self.default
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -443,7 +444,7 @@ impl Context<'_> {
     /// [`world::Error::UnknownGenerator`] for a generator not registered.
     /// [`world::Error::InvalidSettings`] for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range.
-    /// [`world::Error::OutOfRange`] for a generator's spawn where a player would stand outside
+    /// [`world::Error::OutsideWorld`] for a generator's spawn where a player would stand outside
     /// the world border.
     /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone (a temporary
     /// world unloaded or a persistent world deleted), or, for a persistent world, past as many
@@ -513,7 +514,9 @@ impl Context<'_> {
                 (i, ChunkPos::new(i32::MIN, i32::MIN))..=(i, ChunkPos::new(i32::MAX, i32::MAX));
             let chunks = &mut state.chunks;
             let unsaved = chunks.unsaved.extract_if(all, |_, _| true);
-            chunks.discarded.extend(unsaved.map(|(_, u)| u.chunk));
+            chunks
+                .discarded
+                .extend(unsaved.map(|(_, u)| (u.chunk, u.extras.into_extras())));
             super::world_at_mut(state, i).forget();
             state.catalog.unopened.remove(&i);
             state.catalog.note_gone(i, name);
@@ -566,7 +569,7 @@ impl Context<'_> {
     /// [`world::Error::InvalidSettings`] for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range (checked though the spawn
     /// is not used).
-    /// [`world::Error::OutOfRange`] for a stored spawn where a player would stand outside the
+    /// [`world::Error::OutsideWorld`] for a stored spawn where a player would stand outside the
     /// world border.
     /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone.
     #[doc(alias = "WorldManager::loadWorld")]
@@ -835,10 +838,13 @@ fn unload(state: &mut State, index: WorldIndex) -> Vec<SessionId> {
     let home = super::world_at(state, default);
     let eye = survival::standing_eye(home.safe_spawn(home.spawn()));
     let players: Vec<_> = state
-        .players
-        .iter()
-        .filter(|(_, p)| super::is_in_world(p, index))
-        .map(|(&s, _)| s)
+        .sessions_in(index)
+        .filter(|s| {
+            state
+                .players
+                .get(s)
+                .is_some_and(|p| super::is_in_world(p, index))
+        })
         .collect();
     state.catalog.unloading = Some(index);
     for &session in &players {
@@ -904,7 +910,7 @@ fn check_spawn(world: &World) -> world::Result<()> {
     if world::is_valid_spawn(world.spawn()) {
         Ok(())
     } else {
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     }
 }
 

@@ -63,6 +63,7 @@ impl Active {
         }
     }
 
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(self, h: &mut crate::tick::Fnv) {
         let Self {

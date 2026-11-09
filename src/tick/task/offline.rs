@@ -140,6 +140,7 @@ impl Holds {
         Codec::encode(next_ticket, w);
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, data: &UserData, h: &mut crate::tick::Fnv) {
         let Self {

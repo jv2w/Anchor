@@ -177,10 +177,7 @@ fn command(state: &mut State, session: SessionId, line: &str) {
         let message = if params.is_empty() {
             Message::Raw(if success { text } else { format!("§c{text}") })
         } else {
-            Message::Translation {
-                key: text,
-                parameters: params,
-            }
+            Message::Translation { key: text, params }
         };
         if let Err(e) = player.send(message) {
             debug!(
@@ -293,7 +290,7 @@ fn standard(name: &str, line: &str) -> crate::player::Result<Packets> {
     .or_else(|_| {
         Message::Translation {
             key: CHAT_FORMAT.to_owned(),
-            parameters: vec![name.to_owned(), line.to_owned()],
+            params: vec![name.to_owned(), line.to_owned()],
         }
         .into_packets()
     })

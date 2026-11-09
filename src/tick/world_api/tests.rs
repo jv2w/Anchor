@@ -113,7 +113,7 @@ fn a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays() {
         BlockPos::new(0, -60, world::BORDER),
         BlockPos::new(i32::MIN, -60, 0),
     ] {
-        assert_eq!(world.set_spawn(outside), Err(world::Error::OutOfRange));
+        assert_eq!(world.set_spawn(outside), Err(world::Error::OutsideWorld));
     }
     assert_eq!(world.spawn(), before);
     world
@@ -178,11 +178,11 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     );
     assert_eq!(
         cx.add_particle(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Particle::Flame),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     );
     assert_eq!(
         cx.broadcast_packet(WORLD, Vec3::new(4e7, 0.0, 0.0), &Sound::Burp.packet(here)),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     );
     tick(&mut state, &mut Vec::new(), &mut Output::default());
     let seen = level_events(&mut rx1);
@@ -404,7 +404,7 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     }
     assert_eq!(
         cx.explode(action::Explode::new(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0).fire()),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     );
     cx.explode(action::Explode::new(WORLD, center, 4.0))
         .unwrap();
@@ -435,4 +435,5 @@ fn a_player_teleported_this_tick_is_in_its_new_world_for_every_query() {
     let cx = context(&mut state);
     assert_eq!(cx.player(id).unwrap().world(), arena);
     assert!(in_world(&cx, arena) && !in_world(&cx, WORLD));
+    assert!(state.index_matches_players());
 }

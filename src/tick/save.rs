@@ -56,6 +56,7 @@ impl Unsaved {
         extras.checkpoint(w);
     }
 
+    /// Hashes the snapshot, a dirty chunk's content and the extras (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -124,6 +125,9 @@ pub(super) struct Saving {
     pub(super) offline: BTreeMap<StoredPlayer, Offline>,
     /// Whether player data is kept (`save-player-data`).
     pub(super) players: bool,
+    /// The data of departed players a commit now holds, freed off the tick by the save thread
+    /// ([`Request::Discard`]): a commit may hold thousands. Empty between ticks.
+    pub(super) discarded: Vec<Arc<PlayerData>>,
 }
 
 impl Saving {
@@ -139,12 +143,15 @@ impl Saving {
             in_flight: None,
             offline: BTreeMap::new(),
             players,
+            discarded: Vec::new(),
         }
     }
 
+    /// Hashes every field but the settings (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The interval and the player switch are settings.
+        // The interval and the player switch are settings; the discarded data is empty between
+        // ticks.
         let Self {
             interval: _,
             next_due,
@@ -155,6 +162,7 @@ impl Saving {
             in_flight,
             offline,
             players: _,
+            discarded: _,
         } = self;
         h.u64(*next_due);
         h.u64(u64::from(*requested));
@@ -218,7 +226,7 @@ impl Saving {
     /// Whether nothing is in flight or waiting in memory (for leak tests).
     #[cfg(test)]
     pub(super) fn is_idle(&self) -> bool {
-        self.in_flight.is_none() && self.offline.is_empty()
+        self.in_flight.is_none() && self.offline.is_empty() && self.discarded.is_empty()
     }
 }
 
@@ -231,7 +239,8 @@ checkpoint::fields!(Saving {
     checker,
     in_flight,
     offline,
-    players,
+    players;
+    discarded,
 });
 
 /// What the snapshot in flight holds.
@@ -517,8 +526,9 @@ pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
     }
 }
 
-/// Lets go of the memory that held the snapshot taken before tick `start`, now committed, and
-/// tells the input log of the commit (`InputLog::committed`).
+/// Lets go of the memory that held the snapshot taken before tick `start`, now committed, for
+/// the save thread to free ([`Request::Discard`]), and tells the input log of the commit
+/// (`InputLog::committed`).
 pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     let worlds = state
         .saving
@@ -530,11 +540,16 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     let done = chunks
         .unsaved
         .extract_if(.., |_, u| u.snapshot == Some(start));
-    chunks.discarded.extend(done.map(|(_, u)| u.chunk));
-    state
-        .saving
+    chunks
+        .discarded
+        .extend(done.map(|(_, u)| (u.chunk, u.extras.into_extras())));
+    // The save thread dropped the snapshot before it answered, so the tick holds the last
+    // reference to this data.
+    let saving = &mut state.saving;
+    let gone = saving
         .offline
-        .retain(|_, o| o.snapshot != Some(start));
+        .extract_if(.., |_, o| o.snapshot == Some(start));
+    saving.discarded.extend(gone.map(|(_, o)| o.data));
     log.committed(start);
     debug!(start, "save committed");
     if dispatch::heard::<WorldSave>(state) {
@@ -817,6 +832,38 @@ mod tests {
             .find_map(|(key, data)| (*key == gone).then_some(data))
             .expect("the departed player's data is in the snapshot");
         assert!(Arc::ptr_eq(taken, &state.saving.offline[&gone].data));
+    }
+
+    /// The tick boundary after a commit hands the departed player's data the commit holds to the
+    /// save thread to free, with its last reference: the tick frees none of it.
+    #[test]
+    fn a_commit_hands_a_departed_players_data_to_the_save_thread() {
+        let mut state = state(Listeners::default());
+        let gone = StoredPlayer::offline("gone");
+        let data = data_of(&state, &state.players[&SessionId::new(1)]);
+        keep(&mut state.saving, gone, data);
+        state.saving.requested = true;
+        let mut log = InputLog::default();
+        let Some(Request::Commit(snapshot)) = snapshot(&mut state, &mut log, false) else {
+            panic!("a snapshot was asked for");
+        };
+        let start = snapshot.start;
+        // The save thread drops the snapshot before it answers.
+        drop(snapshot);
+        committed(&mut state, &mut log, start);
+        let mut output = Output::default();
+        crate::tick::boundary(&mut state, &mut output, &mut log);
+        let players = output
+            .requests
+            .into_iter()
+            .find_map(|r| match r {
+                Request::Discard { players, .. } => Some(players),
+                _ => None,
+            })
+            .expect("the boundary discards the committed data");
+        assert_eq!(players.len(), 1);
+        assert_eq!(Arc::strong_count(&players[0]), 1);
+        assert!(state.saving.is_idle());
     }
 
     /// Runs 200 ticks of 1 MiB of input each with saves every 1440 minutes, auto-save on or off,

@@ -6,7 +6,7 @@
 //!
 //! The bolt is no entity of the store: it does nothing after its strike and nothing touches it,
 //! so it is its packets and the removal it waits for ([`Bolt`]). What it does, it does at once
-//! (the official server hurts in the strike's tick): with [`Lightning::damage`] the players and
+//! (the official server hurts in the strike's tick): with [`Lightning::harmful`] the players and
 //! living entities in the box from 3 blocks around and below the strike to 9 above it take 5
 //! damage. A bolt sets nothing on fire. Like every direct call it raises no events.
 
@@ -51,6 +51,7 @@ impl Bolt {
     /// one and two seconds after the strike.
     const LIFETIME_TICKS: u64 = 20;
 
+    /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -93,7 +94,7 @@ pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: 
     };
     state.next_runtime_id = next;
     show(state, world, at, runtime_id);
-    if lightning.damage {
+    if lightning.is_harmful() {
         hurt(state, world, at);
     }
     true

@@ -66,7 +66,7 @@ impl Extras {
         self.chunks.get(&key).map(|h| &h.extras)
     }
 
-    /// Hashes the extras of every loaded chunk, for the state hash of tests.
+    /// Hashes the extras of every loaded chunk (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The dirty set repeats the marks of the chunks, which `Held::hash_into` hashes.
@@ -200,7 +200,7 @@ impl Held {
         &self.extras
     }
 
-    /// Hashes the marks and the changed lists, for the state hash of tests.
+    /// Hashes the marks and the changed lists (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // As for terrain (`State::hash`): a clean list is the file's or the last snapshot's,
@@ -256,6 +256,11 @@ impl Held {
         self.dirty = 0;
         out
     }
+
+    /// The lists, without the marks.
+    pub(super) fn into_extras(self) -> ChunkExtras {
+        self.extras
+    }
 }
 
 /// What the rule modules keep of an online player, between [`player_loaded`] and
@@ -286,7 +291,7 @@ impl Player {
         data.checkpoint_player(user, w);
     }
 
-    /// Hashes the compound as saved, for the state hash of tests.
+    /// Hashes the compound as saved (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).

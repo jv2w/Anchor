@@ -164,8 +164,8 @@ pub(crate) fn message(message: &Message) -> String {
         | Message::System(text)
         | Message::Subtitle(text)
         | Message::ActionBar(text) => text.clone(),
-        Message::Translation { key, parameters } | Message::JukeboxPopup { key, parameters } => {
-            render(key, parameters)
+        Message::Translation { key, params } | Message::JukeboxPopup { key, params } => {
+            render(key, params)
         }
         Message::Chat { source, text } => render("chat.type.text", &[source, text]),
         Message::Whisper { source, text } => {
@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(
             message(&Message::Translation {
                 key: "commands.op.success".to_owned(),
-                parameters: vec!["Steve".to_owned()],
+                params: vec!["Steve".to_owned()],
             }),
             "Steve is an operator now"
         );

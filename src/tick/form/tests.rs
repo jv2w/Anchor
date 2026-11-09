@@ -10,7 +10,7 @@ use crate::display::{
 };
 use crate::event::Listeners;
 use crate::form::{Buttons, Custom, Modal, Value};
-use crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
+use crate::protocol::MAX_BOSS_EVENT_BOSS_BAR_TITLE;
 use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
 use crate::tick::queue::{Input, Outbound};
 use crate::tick::tests::{input, join, leave, new_state, packet, received, settings, tick};
@@ -642,7 +642,7 @@ fn scoreboards_that_break_a_bound_are_refused() {
 fn a_boss_bar_title_longer_than_a_client_decodes_is_refused() {
     let (mut state, _rx) = server();
     let mut cx = Context { state: &mut state };
-    let max = BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
+    let max = MAX_BOSS_EVENT_BOSS_BAR_TITLE;
     assert!(
         cx.set_boss_bar(id(1), BossBar::new("x".repeat(max)))
             .is_ok()
@@ -747,7 +747,7 @@ fn the_docs_name_the_limits_the_build_checks() {
             thousands(MAX_LINES)
         ),
         format!("longer than {} bytes", thousands(MAX_LABEL_BYTES)),
-        format!("title is longer than {BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN} bytes"),
+        format!("title is longer than {MAX_BOSS_EVENT_BOSS_BAR_TITLE} bytes"),
     ] {
         assert!(display.contains(&text), "{text}");
     }

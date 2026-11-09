@@ -199,7 +199,7 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
     assert_eq!(e.custom_type(), Some("test:ghost"));
     assert_eq!(e.network_type(), "test:ghost");
     assert_eq!((e.health(), e.max_health()), (30.0, 30.0));
-    assert_eq!(e.name_tag(), "Ghost");
+    assert_eq!(e.name_tag(), Some("Ghost"));
     assert_eq!(e.custom_data(), Some(&Compound::new()));
     assert!(e.can_save_with_chunk() && !e.is_invulnerable() && e.can_be_collided_with());
     let b = e.bounding_box();
@@ -400,7 +400,7 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
         assert!(m.set_custom_data(too_big()).is_err());
         m.set_health(12.0).unwrap();
         m.set_invulnerable(true).unwrap();
-        m.set_name_tag("Boo").unwrap();
+        m.set_name_tag(Some("Boo")).unwrap();
         assert!(!cx.entity(prop).unwrap().can_save_with_chunk());
         assert!(
             cx.entity_mut(prop)
@@ -447,7 +447,7 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     assert_eq!(loaded.custom_data(), Some(&data));
     assert_eq!(loaded.health(), 12.0);
     assert!(loaded.is_invulnerable());
-    assert_eq!(loaded.name_tag(), "Boo");
+    assert_eq!(loaded.name_tag(), Some("Boo"));
     assert_eq!(saved::save(loaded), list[0], "saved again the same");
     // Loaded by a server without it: kept as saved, written back unchanged.
     let mut bare = Entities::default();

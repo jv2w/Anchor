@@ -33,7 +33,7 @@ pub(crate) struct Forms {
 }
 
 impl Forms {
-    /// Hashes what a replay must reproduce: form IDs, waiting forms and what is shown.
+    /// Hashes what a replay must reproduce (state hash): form IDs, waiting forms and what is shown.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self { players } = self;

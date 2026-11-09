@@ -36,6 +36,7 @@ impl Queue {
         Codec::encode(next_id, w);
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {

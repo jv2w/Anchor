@@ -21,7 +21,7 @@ use crate::protocol::packet::{
 };
 use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, FlagSet, ItemInstance,
-    LocatorBarWaypoint, MetadataValue, PlayerListEntry, Skin, Uuid, Waypoint,
+    LocatorBarWaypoint, MetadataValue, PlayerListEntry, Rgba, Skin, Uuid, Waypoint,
     WaypointWorldPosition,
 };
 use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFFHAND_WINDOW_BYTE};
@@ -30,7 +30,12 @@ use crate::tick::trade::Offers;
 /// The particle a potion's cloud shows (the official server's, P6 `potions`).
 const CLOUD_PARTICLE: i32 = 35;
 /// The potion splash colour of an effect-less potion or cloud (ARGB 0x385dc6).
-pub(super) const DEFAULT_POTION_COLOUR: [u8; 4] = [0x38, 0x5d, 0xc6, 0xff];
+pub(super) const DEFAULT_POTION_COLOUR: Rgba = Rgba {
+    r: 0x38,
+    g: 0x5d,
+    b: 0xc6,
+    a: 0xff,
+};
 /// Ticks over which the client spreads a `MoveActorDelta`: the official server sends 0 for items,
 /// orbs and villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
 const MOVE_TICKS: u64 = 0;
@@ -434,7 +439,7 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
     );
     put(
         EntityDataKey::EffectColor,
-        MetadataValue::Int32(argb(effect_colour(&cloud.effects))),
+        MetadataValue::Int32(crate::block_entity::to_argb(effect_colour(&cloud.effects))),
     );
     put(
         EntityDataKey::DataParticle,
@@ -457,13 +462,8 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
 
 /// The colour of the effects `effects` show (each visible effect's colour mixed, once per level);
 /// the default colour without one.
-pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> [u8; 4] {
+pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> Rgba {
     crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOUR)
-}
-
-/// The ARGB int of an RGBA colour ([`crate::block_entity::to_argb`]).
-fn argb([r, g, b, a]: [u8; 4]) -> i32 {
-    crate::block_entity::to_argb(crate::protocol::Rgba { r, g, b, a })
 }
 
 /// The `SetActorData` of a villager whose tier or trade xp changed from `before`: only

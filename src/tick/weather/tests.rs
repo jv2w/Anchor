@@ -402,7 +402,7 @@ fn a_bolt_shows_with_its_sounds_to_those_who_see_it_and_goes_a_second_later() {
     for outside in [Vec3::new(f64::NAN, 0.0, 0.0), Vec3::new(4e7, 0.0, 0.0)] {
         assert_eq!(
             c.strike_lightning(WORLD, outside, Lightning::default()),
-            Err(world::Error::OutOfRange)
+            Err(world::Error::OutsideWorld)
         );
     }
     assert_eq!(
@@ -494,7 +494,7 @@ fn struck(lightning: Lightning) -> ((f64, u32), [(f64, u32); 2]) {
 fn lightning_hurts_what_is_near_and_burns_nothing_only_with_its_damage() {
     let calm = struck(Lightning::default());
     assert_eq!(calm, ((20.0, 0), [(20.0, 0), (20.0, 0)]));
-    let (player, [near, far]) = struck(Lightning { damage: true });
+    let (player, [near, far]) = struck(Lightning::new().harmful());
     assert_eq!(player, (15.0, 0), "5 damage and no fire");
     assert_eq!(near, (15.0, 0));
     assert_eq!(far, (20.0, 0), "out of reach");
@@ -502,7 +502,7 @@ fn lightning_hurts_what_is_near_and_burns_nothing_only_with_its_damage() {
 
 #[test]
 fn lightning_hurts_at_every_difficulty_and_sets_no_block_on_fire() {
-    let bolt = Lightning { damage: true };
+    let bolt = Lightning::new().harmful();
     for difficulty in [
         Difficulty::Peaceful,
         Difficulty::Easy,

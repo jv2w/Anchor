@@ -36,7 +36,7 @@ fn place(state: &mut State, pos: BlockPos, block: block::State) {
 fn on_ground(state: &mut State, item: Type) -> u64 {
     ground(state)
         .iter()
-        .filter(|s| s.item() == Some(item))
+        .filter(|s| s.item_type() == Some(item))
         .map(|s| u64::from(s.count()))
         .sum()
 }

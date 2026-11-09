@@ -129,7 +129,8 @@ impl Engine {
         }
     }
 
-    /// Hashes the work waiting: the queues in order, the overflowed chunks and the chunk tasks.
+    /// Hashes the work waiting (state hash): the queues in order, the overflowed chunks and the
+    /// chunk tasks.
     #[cfg(test)]
     pub(crate) fn hash_into(&self, h: &mut Digest) {
         let Self {
@@ -1225,7 +1226,8 @@ pub(crate) struct Levels {
 }
 
 impl Levels {
-    /// Hashes every value and sky height: a uniform cube by its value, a full one by its bytes.
+    /// Hashes every value and sky height (state hash): a uniform cube by its value, a full one by
+    /// its bytes.
     #[cfg(test)]
     pub(crate) fn hash_into(&self, h: &mut Digest) {
         let Self { arrays, heights } = self;
@@ -2398,9 +2400,12 @@ mod tests {
     #[ignore = "measurement"]
     #[expect(
         clippy::print_stderr,
-        clippy::disallowed_methods,
         clippy::cast_precision_loss,
-        reason = "consistency: a measurement prints its result and reads the wall clock"
+        reason = "consistency: a measurement prints its result"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a measurement reads the wall clock"
     )]
     fn light_cost() {
         let states = light_states();

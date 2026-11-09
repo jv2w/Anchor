@@ -316,7 +316,7 @@ fn placement(
     click: Vec3,
 ) -> Option<place::Blocks> {
     let world = actor.world;
-    let item = held.item()?;
+    let item = held.item_type()?;
     let w = state.worlds.get(world)?;
     let clicked = w.block(pos)?;
     if actor.mode == GameMode::Adventure && !adventure_allows(held, "CanPlaceOn", clicked.name()) {
@@ -465,7 +465,7 @@ pub(super) fn sign_side(block: BlockState, feet: Vec3, pos: BlockPos) -> Side {
 /// entity stands in the middle of the block next to the clicked face, turned at random.
 fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     let world = u.actor.world;
-    let Some(item) = u.item.item() else {
+    let Some(item) = u.item.item_type() else {
         return Outcome::None;
     };
     let placed = if item.is(item::Class::SpawnEgg) {
@@ -531,7 +531,7 @@ pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
         }
         event = Some(e);
     }
-    let Some(item) = held.item() else {
+    let Some(item) = held.item_type() else {
         return false;
     };
     // A consumable has no air use or cooldown of its own: eating starts it.
@@ -555,7 +555,7 @@ fn usable(state: &State, actor: &Actor) -> Option<Stack> {
     }
     let player = state.players.get(&actor.session)?;
     let held = player.inventory.held();
-    let item = held.item()?;
+    let item = held.item_type()?;
     (!survival::has_item_cooldown(state, player, item)).then(|| held.clone())
 }
 
@@ -642,7 +642,7 @@ pub(super) fn release(state: &mut State, session: SessionId) {
     };
     let held = player.inventory.held().clone();
     let used = u32::try_from(tick.saturating_sub(since)).unwrap_or(u32::MAX);
-    if !held.item().is_some_and(|t| t.is(item::Class::Trident)) {
+    if !held.item_type().is_some_and(|t| t.is(item::Class::Trident)) {
         let _shot = entity::release_bow(state, session, used);
         return;
     }

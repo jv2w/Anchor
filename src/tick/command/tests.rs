@@ -745,7 +745,7 @@ fn a_description_longer_than_a_client_decodes_refuses_the_build() {
         commands.register(command, Origin::User);
         commands.finish()
     };
-    let max = crate::protocol::COMMAND_DESCRIPTION_MAX_LEN;
+    let max = crate::protocol::MAX_COMMAND_DESCRIPTION;
     assert_eq!(finish("x".repeat(max)), Ok(()));
     assert_eq!(
         finish("x".repeat(max + 1)),
@@ -1479,7 +1479,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     let entry = cx.ban_entry("griefer").unwrap();
     assert_eq!(
         (entry.reason(), entry.created(), entry.expires()),
-        ("tnt", 1, Some(500))
+        (Some("tnt"), 1, Some(500))
     );
     assert_eq!(cx.ip_ban_entry(ip).map(BanEntry::source), Some("console"));
     assert_eq!(cx.bans().count() + cx.ip_bans().count(), 2);
@@ -1871,7 +1871,7 @@ fn the_console_reads_anchors_sentences_where_players_get_keys() {
                 Sender::Console,
                 player::Message::Translation {
                     key: "commands.op.success".to_owned(),
-                    parameters: vec!["Steve".to_owned()],
+                    params: vec!["Steve".to_owned()],
                 },
             )
             .unwrap();

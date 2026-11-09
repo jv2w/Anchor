@@ -669,7 +669,7 @@ type TotalKey = (Option<Type>, u16, String);
 /// The key of `s` in the totals.
 fn total_key(s: &Stack) -> TotalKey {
     let extra = s.extra().map(|e| format!("{e:?}")).unwrap_or_default();
-    (s.item(), s.damage(), extra)
+    (s.item_type(), s.damage(), extra)
 }
 
 /// Everything players, containers, waiting lists and dropped items hold, by item.
@@ -713,7 +713,7 @@ pub(super) fn totals(state: &State) -> BTreeMap<TotalKey, u64> {
 /// No slot holds more than its stack size, and a slot is empty exactly when its ID is 0.
 pub(super) fn check_slots(state: &State) {
     let check = |s: &Stack, id: Option<StackId>| {
-        assert!(s.count() <= s.max_stack_size(), "{s:?}");
+        assert!(s.count() <= s.max_stack_size().unwrap_or(0), "{s:?}");
         assert_eq!(s.is_empty(), s.count() == 0);
         if let Some(id) = id {
             assert_eq!(s.is_empty(), id.net == 0, "{s:?} {id:?}");
@@ -733,7 +733,7 @@ pub(super) fn check_slots(state: &State) {
             }
         }
         for (i, s) in inv.armor.stacks.iter().enumerate() {
-            if let Some(a) = s.item().and_then(Type::armor) {
+            if let Some(a) = s.item_type().and_then(Type::armor) {
                 assert_eq!(a.slot() as usize, i);
             }
         }
@@ -1858,7 +1858,7 @@ fn hotbar_selection_and_pick_block_select_or_take_the_picked_item() {
     };
     on_block_pick_request(&mut w.state, s, &pick);
     assert_eq!(
-        w.inv(s).main.stack(0).item(),
+        w.inv(s).main.stack(0).item_type(),
         Some(block_item(blk::Kind::Cobblestone))
     );
     assert_eq!(w.inv(s).held_slot(), 0, "an empty hotbar slot is selected");
@@ -1999,7 +1999,7 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
     // Distinct items, so none merge: the main slots full and the most waiting stacks.
     let mut items = item_samples()
         .into_values()
-        .filter(|st| st.max_stack_size() > 1)
+        .filter(|st| st.max_stack_size() > Some(1))
         .map(|st| st.with_count(1));
     for st in items.by_ref().take(MAIN) {
         w.give(s, st);

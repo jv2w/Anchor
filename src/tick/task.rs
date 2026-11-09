@@ -241,11 +241,12 @@ impl Context<'_> {
         self.state.settings.view.view_distance
     }
 
-    /// The loaded world named `name`, if any.
+    /// The loaded world named `name`, if any. Like the player lookups it returns an
+    /// [`Id`](crate::world::Id), so the context stays free for [`world_mut`](Self::world_mut).
     #[doc(alias = "WorldManager::getWorldByName")]
-    pub fn world_named(&self, name: &str) -> Option<&World> {
+    pub fn world_by_name(&self, name: &str) -> Option<crate::world::Id> {
         let index = self.state.catalog.named(name)?;
-        self.world(crate::world::Id::of(index))
+        self.world(crate::world::Id::of(index)).map(World::id)
     }
 
     /// Asks for a save: the next snapshot commits every persistent world and, with
@@ -300,7 +301,7 @@ impl Context<'_> {
     ///
     /// [`Error::TooLong`](crate::player::Error::TooLong) for a text or source over its bound;
     /// nothing is sent.
-    /// [`Error::TooManyParameters`](crate::player::Error::TooManyParameters) for a translation
+    /// [`Error::TooManyParams`](crate::player::Error::TooManyParams) for a translation
     /// with too many parameters; nothing is sent.
     #[doc(alias = "Server::broadcastMessage")]
     #[doc(alias = "Server::broadcastTip")]
@@ -399,12 +400,6 @@ impl Context<'_> {
         self.network_control(Control::Unblock(ip))
     }
 
-    /// Lends the loaded world named `name` to change, if any.
-    pub fn world_named_mut(&mut self, name: &str) -> Option<&mut World> {
-        let index = self.state.catalog.named(name)?;
-        self.world_mut(crate::world::Id::of(index))
-    }
-
     /// Queues `control` for the networking, which applies it once this tick ends.
     fn network_control(&mut self, control: Control) -> crate::task::Result<()> {
         if self.state.network.control(control) {
@@ -455,6 +450,7 @@ impl Tasks {
         offline.checkpoint(w);
     }
 
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, data: &UserData, h: &mut super::Fnv) {
         let Self {
@@ -759,8 +755,8 @@ mod tests {
         let mut cx = Context { state: &mut state };
         assert_eq!(cx.tick(), tick_now);
         assert_eq!(cx.default_world().name(), "world");
-        assert!(cx.world_named("world").is_some());
-        assert!(cx.world_named_mut("nether").is_none());
+        assert_eq!(cx.world_by_name("world"), Some(cx.default_world().id()));
+        assert_eq!(cx.world_by_name("nether"), None);
         cx.save();
         assert!(format!("{cx:?}").contains("save: true"));
         assert!(state.saving.requested);

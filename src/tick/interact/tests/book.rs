@@ -116,9 +116,15 @@ fn book_edits_keep_the_page_and_text_limits() {
     assert_eq!(pages(&h)[0], "last", "swapping within a full book works");
     // A title of 17 characters is refused; 16 sign the book.
     edit(&mut h, slot, BookAction::Sign, 0, 0, &"t".repeat(17));
-    assert_eq!(h.held().item(), Some(ItemKind::WritableBook.default_type()));
+    assert_eq!(
+        h.held().item_type(),
+        Some(ItemKind::WritableBook.default_type())
+    );
     edit(&mut h, slot, BookAction::Sign, 0, 0, &"t".repeat(16));
-    assert_eq!(h.held().item(), Some(ItemKind::WrittenBook.default_type()));
+    assert_eq!(
+        h.held().item_type(),
+        Some(ItemKind::WrittenBook.default_type())
+    );
 }
 
 /// The edits are checked against the page count before any page is copied; pages in a list of
@@ -154,7 +160,7 @@ fn signing_makes_an_original_written_book_and_only_books_and_quills_are_edited()
     edit(&mut h, slot, BookAction::Sign, 0, 0, "Title");
     let book = h.held();
     assert_eq!(
-        (book.item(), book.count()),
+        (book.item_type(), book.count()),
         (Some(ItemKind::WrittenBook.default_type()), 1)
     );
     let nbt = &book.extra().unwrap().nbt;
@@ -196,8 +202,8 @@ fn listener(then: fn(&mut PlayerEditBook, &mut Context<'_>)) -> Listeners {
                 (
                     e.player(),
                     e.action(),
-                    e.old_book().item(),
-                    e.new_book().item(),
+                    e.old_book().item_type(),
+                    e.new_book().item_type(),
                     e.modified_pages(),
                 ),
             );
@@ -255,7 +261,7 @@ fn an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book() {
         ]
     );
     assert_eq!(
-        h.held().item(),
+        h.held().item_type(),
         quill_type,
         "the listener kept the book unsigned"
     );

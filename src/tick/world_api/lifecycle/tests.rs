@@ -136,7 +136,7 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
     let w = cx.world(id).unwrap();
     assert_eq!((w.seed(), w.spawn(), w.kind()), (9, spawn, Kind::Temporary));
     assert_eq!(w.difficulty(), Some(Difficulty::Hard));
-    assert_eq!(cx.world_named("arena").unwrap().id(), id);
+    assert_eq!(cx.world_by_name("arena"), Some(id));
     assert!(logged().is_empty(), "the events come in the view phase");
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["init 1", "load 1"]);
@@ -238,7 +238,7 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["unload 1", "monitor false false"]);
     let cx = context(&mut state);
-    assert!(cx.world(id).is_none() && cx.world_named("arena").is_none());
+    assert!(cx.world(id).is_none() && cx.world_by_name("arena").is_none());
     assert!(!cx.is_world_loaded("arena") && !cx.is_world_generated("arena"));
     let p = &state.players[&SessionId::new(1)];
     assert_eq!(p.world, 0, "moved to the default world");
@@ -597,14 +597,14 @@ fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
     );
     assert_eq!(
         cx.hold_chunks(world::Id::DEFAULT, ChunkPos::new(2_000_000, 0), 0),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     );
     // The far ends of a public `ChunkPos` are refused too, holding nothing.
     let held = cx.state.chunks.held();
     for center in [ChunkPos::new(i32::MIN, 0), ChunkPos::new(0, i32::MIN)] {
         assert_eq!(
             cx.hold_chunks(world::Id::DEFAULT, center, 0),
-            Err(world::Error::OutOfRange)
+            Err(world::Error::OutsideWorld)
         );
     }
     assert_eq!(cx.state.chunks.held(), held);
@@ -861,7 +861,7 @@ fn a_stored_world_with_a_spawn_outside_the_border_is_not_loaded() {
     );
     assert_eq!(
         context(&mut state).load_world("old", &Options::new()),
-        Err(world::Error::OutOfRange)
+        Err(world::Error::OutsideWorld)
     );
     assert!(state.catalog.stored.contains_key("old"), "still stored");
     assert_eq!(state.worlds.len(), 1);
@@ -1074,7 +1074,7 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
     assert_eq!(cx.unload_world(old), Err(world::Error::WorldNotLoaded));
     assert_eq!(cx.world(new).map(World::name), Some("arena-2"));
     assert!(!cx.is_world_generated("arena-1"));
-    assert_eq!(cx.world_named("arena-2").map(World::id), Some(new));
+    assert_eq!(cx.world_by_name("arena-2"), Some(new));
     let again = cx.create_world("arena-1", &arena(1)).unwrap();
     assert!(again != old && again != new, "a place of its own");
     let lobby = cx.create_world("lobby", &Options::new()).unwrap();
@@ -1214,7 +1214,7 @@ fn a_name_of_a_world_gone_and_one_not_gone_names_the_one_not_gone_after_a_restor
     let mut copy = restored(&state, &pool);
     for s in [&mut state, &mut copy] {
         let mut cx = context(s);
-        assert_eq!(cx.world_named("b").map(World::id), Some(again));
+        assert_eq!(cx.world_by_name("b"), Some(again));
         assert_eq!(
             cx.create_world("b", &arena(4)),
             Err(world::Error::WorldExists)
@@ -1664,12 +1664,12 @@ fn script(state: &mut State) {
                     .player(crate::player::Id::new(SessionId::new(1)))
                     .unwrap();
                 let feet = player.position();
-                let lightning = Lightning { damage: true };
+                let lightning = Lightning::new().harmful();
                 cx.strike_lightning(world::Id::DEFAULT, feet, lightning)
                     .unwrap();
             }
             12 => {
-                let lobby = cx.world_named("lobby").unwrap().id();
+                let lobby = cx.world_by_name("lobby").unwrap();
                 let set = cx
                     .world_mut(lobby)
                     .unwrap()
@@ -1679,7 +1679,7 @@ fn script(state: &mut State) {
             }
             24 => {
                 for name in ["arena", "lobby"] {
-                    let id = cx.world_named(name).unwrap().id();
+                    let id = cx.world_by_name(name).unwrap();
                     cx.unload_world(id).unwrap();
                 }
             }

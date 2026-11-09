@@ -210,8 +210,10 @@ pub enum Kind {
 #[non_exhaustive]
 pub enum Error {
     /// The position is outside the world height or border (a chunk ticket's center too), or a
-    /// local position outside its chunk; or it is not finite, a spawn where a player would stand
-    /// outside the border, or an explosion's size that is not above 0.
+    /// local position outside its chunk; or it is not finite, or a spawn where a player would
+    /// stand outside the border.
+    OutsideWorld,
+    /// An explosion's size is not finite or not above 0.
     OutOfRange,
     /// The chunk of the position is not loaded.
     NotLoaded,
@@ -259,7 +261,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::OutOfRange => f.write_str("position is outside the world"),
+            Self::OutsideWorld => f.write_str("position is outside the world"),
+            Self::OutOfRange => f.write_str("explosion size is out of range"),
             Self::NotLoaded => f.write_str("chunk is not loaded"),
             Self::Quarantined => f.write_str("chunk is quarantined"),
             Self::Malformed(reason) => write!(f, "malformed chunk data: {reason}"),
@@ -446,7 +449,7 @@ pub enum StoredBlock {
 #[derive(Clone)]
 pub struct UnknownBlock {
     /// The unknown states of the chunk it was read from, shared so a read copies no NBT.
-    list: std::sync::Arc<Vec<crate::nbt::Compound>>,
+    list: std::sync::Arc<chunk::UnknownStates>,
     /// Its place in `list`.
     index: usize,
 }
@@ -538,8 +541,28 @@ pub enum Weather {
 /// does besides being seen and heard, which it always is. The default does nothing more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Lightning {
-    /// The players and living entities near the strike take 5 damage, at every difficulty.
-    pub damage: bool,
+    harmful: bool,
+}
+
+impl Lightning {
+    /// A bolt that does nothing more.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the players and living entities near the strike take 5 damage, at every
+    /// difficulty.
+    pub fn is_harmful(self) -> bool {
+        self.harmful
+    }
+
+    /// The same bolt, hurting the players and living entities near the strike by 5, at every
+    /// difficulty.
+    #[must_use]
+    pub fn harmful(mut self) -> Self {
+        self.harmful = true;
+        self
+    }
 }
 
 /// A world: its settings and the chunks loaded in memory.
@@ -1052,7 +1075,7 @@ impl World {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::OutsideWorld`] for a position outside the world height.
     /// [`Error::NotLoaded`] for a chunk that is not loaded.
     /// [`Error::Quarantined`] for a quarantined chunk.
     #[doc(alias = "World::setBiomeId")]
@@ -1089,7 +1112,7 @@ impl World {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::OutsideWorld`] for a position outside the world height.
     /// [`Error::NotLoaded`] for a chunk that is not loaded.
     /// [`Error::Quarantined`] for a quarantined chunk.
     #[doc(alias = "World::setBlockAt")]
@@ -1134,11 +1157,11 @@ impl World {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a spawn where a player would stand outside the world border.
+    /// [`Error::OutsideWorld`] for a spawn where a player would stand outside the world border.
     #[doc(alias = "World::setSpawnLocation")]
     pub fn set_spawn(&mut self, spawn: BlockPos) -> Result<()> {
         if !is_valid_spawn(spawn) {
-            return Err(Error::OutOfRange);
+            return Err(Error::OutsideWorld);
         }
         self.spawn = spawn;
         Ok(())
@@ -1150,7 +1173,7 @@ impl World {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::OutsideWorld`] for a position outside the world height.
     /// [`Error::NotLoaded`] for a chunk that is not loaded.
     /// [`Error::Quarantined`] for a quarantined chunk.
     /// [`Error::Full`] when the chunk holds the most unknown states it can.
@@ -1219,7 +1242,7 @@ impl World {
     /// Why a block cannot be written at `pos`.
     fn unwritable(&self, pos: BlockPos) -> Error {
         if !Self::is_in_world(pos) {
-            Error::OutOfRange
+            Error::OutsideWorld
         } else if self.quarantined.contains(&pos.chunk()) {
             Error::Quarantined
         } else {
@@ -1598,7 +1621,7 @@ mod tests {
         assert_eq!(w.take_dirty().len(), 1, "saved with the chunk");
         assert_eq!(
             w.set_biome(BlockPos::new(0, 400, 0), 2),
-            Err(Error::OutOfRange)
+            Err(Error::OutsideWorld)
         );
         assert_eq!(
             w.set_biome(BlockPos::new(1000, 0, 0), 2),
@@ -1613,11 +1636,11 @@ mod tests {
         let stone = State::find("minecraft:stone", &[]).unwrap();
         assert_eq!(
             w.set_block(BlockPos::new(0, MAX_Y + 1, 0), stone),
-            Err(Error::OutOfRange)
+            Err(Error::OutsideWorld)
         );
         assert_eq!(
             w.set_block(BlockPos::new(0, MIN_Y - 1, 0), stone),
-            Err(Error::OutOfRange)
+            Err(Error::OutsideWorld)
         );
         assert_eq!(
             w.set_block(BlockPos::new(16, 0, 0), stone),
@@ -2277,8 +2300,11 @@ mod tests {
     #[ignore = "measurement"]
     #[expect(
         clippy::print_stderr,
+        reason = "consistency: a measurement prints its result"
+    )]
+    #[expect(
         clippy::disallowed_methods,
-        reason = "consistency: a measurement prints its result and reads the wall clock"
+        reason = "off-tick: a measurement reads the wall clock"
     )]
     fn block_access_cost() {
         let states = plain_states();
@@ -2321,7 +2347,7 @@ mod tests {
             // The same lookups through a hash map with a fixed hash, for comparison.
             #[expect(
                 clippy::disallowed_types,
-                reason = "consistency: the measurement compares the index with a hash map"
+                reason = "off-tick: the measurement compares the index with a hash map"
             )]
             let map: std::collections::HashMap<
                 ChunkPos,

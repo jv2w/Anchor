@@ -857,7 +857,7 @@ mod tests {
     use super::*;
 
     use super::parse::{MAX_LINE_BYTES, MAX_LINE_CHARS, SYNTAX_CONTEXT};
-    use crate::protocol::COMMAND_DESCRIPTION_MAX_LEN;
+    use crate::protocol::MAX_COMMAND_DESCRIPTION;
 
     #[test]
     fn the_docs_name_the_limits_the_build_checks() {
@@ -866,7 +866,7 @@ mod tests {
             include_str!("command/register.rs"),
         ]
         .concat();
-        let max = COMMAND_DESCRIPTION_MAX_LEN;
+        let max = MAX_COMMAND_DESCRIPTION;
         let description = format!("{},{:03} bytes", max / 1000, max % 1000);
         let line_bytes = format!(
             "{},{:03} bytes",

@@ -109,7 +109,7 @@ impl CreativeInventory {
                 Change::Remove(item) => {
                     let (want, _) = resolve_item(custom, item)?;
                     if let Some(at) = entries.iter().position(|e| {
-                        e.stack.item() == want.item() && e.stack.damage() == want.damage()
+                        e.stack.item_type() == want.item_type() && e.stack.damage() == want.damage()
                     }) {
                         entries.remove(at);
                     }
@@ -428,6 +428,10 @@ fn too_many_entries() -> Error {
 fn vanilla_entries() -> Vec<Entry> {
     (0..)
         .map_while(item::creative_entry)
-        .filter(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())))
+        .filter(|e| {
+            !e.stack
+                .item_type()
+                .is_some_and(|t| item::is_education(t.name()))
+        })
         .collect()
 }

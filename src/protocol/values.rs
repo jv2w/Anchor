@@ -2,7 +2,7 @@
 
 use super::consts::PackSettingType;
 use super::io::{Codec, Error, Reader, Result, Writer, length};
-use super::types::PACK_SETTING_NAME_MAX_LEN;
+use super::types::MAX_PACK_SETTING_NAME;
 
 /// A game rule and its value (gophertunnel `GameRule`).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -144,7 +144,7 @@ impl Reader<'_> {
 
     /// Reads a `PackSetting`.
     pub(crate) fn pack_setting(&mut self) -> Result<PackSetting> {
-        let name = self.string_max(PACK_SETTING_NAME_MAX_LEN)?;
+        let name = self.string_max(MAX_PACK_SETTING_NAME)?;
         let value = match PackSettingType::try_from(self.varuint32()?)? {
             PackSettingType::Float => PackSettingValue::Float32(self.float32()?),
             PackSettingType::Bool => PackSettingValue::Bool(self.bool()?),
@@ -194,7 +194,7 @@ impl Writer {
 
     /// Writes a `PackSetting`.
     pub(crate) fn pack_setting(&mut self, x: &PackSetting) -> Result<()> {
-        self.string_max(&x.name, PACK_SETTING_NAME_MAX_LEN)?;
+        self.string_max(&x.name, MAX_PACK_SETTING_NAME)?;
         match &x.value {
             PackSettingValue::Float32(v) => {
                 self.varuint32(PackSettingType::Float.into());

@@ -4171,8 +4171,11 @@ pub(crate) mod tests {
     #[ignore = "measurement"]
     #[expect(
         clippy::print_stdout,
+        reason = "consistency: a measurement prints its results"
+    )]
+    #[expect(
         clippy::disallowed_methods,
-        reason = "consistency: a measurement prints its results and reads files"
+        reason = "off-tick: a measurement reads files"
     )]
     fn measure_start_cost() {
         let mut rng = Rng(0x5747_0001);
@@ -4258,9 +4261,12 @@ pub(crate) mod tests {
     #[ignore = "measurement"]
     #[expect(
         clippy::print_stdout,
+        reason = "consistency: a measurement prints its results"
+    )]
+    #[expect(
         clippy::disallowed_methods,
         clippy::disallowed_types,
-        reason = "consistency: a measurement prints its results and reads files"
+        reason = "off-tick: a measurement reads files"
     )]
     fn measure_data_folder_start() {
         let data = PathBuf::from(

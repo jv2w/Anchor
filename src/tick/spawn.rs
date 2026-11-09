@@ -47,8 +47,8 @@ use crate::protocol::packet::{
 };
 use crate::protocol::{self, batch};
 use crate::protocol::{
-    PLAYER_LIST_ENTRIES_MAX_LEN, PlayerListEntry, PlayerMovementSettings, Rgba,
-    ServerJoinInformation, TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
+    MAX_PLAYER_LIST_ENTRIES, PlayerListEntry, PlayerMovementSettings, Rgba, ServerJoinInformation,
+    TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
 };
 use crate::save::{PlayerData, PlayerLoad, Request, WorldIndex};
 use crate::storage::PlayerKey as StoredPlayer;
@@ -286,7 +286,7 @@ struct RadiusAnswer {
 struct Window {
     /// The list of every placed player, in session order, built once for every window: it holds
     /// each player's skin (up to 4 MiB). A client takes at most
-    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
+    /// [`MAX_PLAYER_LIST_ENTRIES`] entries in one packet and a session sends at most
     /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
     player_list: Vec<Arc<SharedPacket>>,
     /// The packets of each world a window is in. Only those worlds.
@@ -760,7 +760,7 @@ fn spawn_window(
 }
 
 /// Builds the `PlayerList` packets that list `players` in order: each of at most
-/// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries and of at most `max_batch_bytes` in a batch. One
+/// [`MAX_PLAYER_LIST_ENTRIES`] entries and of at most `max_batch_bytes` in a batch. One
 /// entry alone always fits ([`MAX_LIST_ENTRY_BYTES`]).
 fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<SharedPacket>> {
     let mut packets = Vec::new();
@@ -772,7 +772,7 @@ fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<SharedPa
             .saturating_add(XUID_DIGITS)
             .saturating_add(player.identity.client.playfab_id.len())
             .saturating_add(player.identity.skin.size());
-        if entries.len() == PLAYER_LIST_ENTRIES_MAX_LEN
+        if entries.len() == MAX_PLAYER_LIST_ENTRIES
             || (!entries.is_empty() && bytes.saturating_add(entry_bytes) > max_batch_bytes)
         {
             let entries = std::mem::take(&mut entries);
@@ -1094,7 +1094,7 @@ fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
     let default = state.catalog.default_world();
     let (world, position) =
         saved.unwrap_or_else(|| (default, spawn_position(state.worlds.get(default))));
-    player.world = world;
+    state.set_world(player, world);
     player.position = position;
     player.phase = Phase::Joined;
     announce(state, player);
@@ -1459,7 +1459,7 @@ fn joined(state: &mut State, session: SessionId) {
     };
     let translated = |name: String| Text::Translation {
         key: JOINED_KEY.to_owned(),
-        parameters: vec![name],
+        params: vec![name],
     };
     let mut event = None;
     let message = if dispatch::heard::<PlayerJoin>(state) {
@@ -2397,7 +2397,7 @@ mod tests {
         use crate::event::Listeners;
         use crate::tick::tests::{join, new_state, radius, received, settings, tick};
 
-        let count = PLAYER_LIST_ENTRIES_MAX_LEN + 1;
+        let count = MAX_PLAYER_LIST_ENTRIES + 1;
         let players = u32::try_from(count).unwrap();
         let mut state = new_state(
             settings(|c| c.general.max_players = players),
@@ -2420,12 +2420,7 @@ mod tests {
         // The start-game list and the spawn window's, each of every placed player.
         assert_eq!(
             lists,
-            [
-                PLAYER_LIST_ENTRIES_MAX_LEN,
-                1,
-                PLAYER_LIST_ENTRIES_MAX_LEN,
-                1
-            ]
+            [MAX_PLAYER_LIST_ENTRIES, 1, MAX_PLAYER_LIST_ENTRIES, 1]
         );
     }
 

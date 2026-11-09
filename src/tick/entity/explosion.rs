@@ -1080,7 +1080,7 @@ mod tests {
         let sticks = h
             .live()
             .iter()
-            .filter(|e| matches!(&e.kind, Kind::Item(i) if !e.flagged && i.stack.item().unwrap().name() == "minecraft:stick"))
+            .filter(|e| matches!(&e.kind, Kind::Item(i) if !e.flagged && i.stack.item_type().unwrap().name() == "minecraft:stick"))
             .count();
         assert_eq!(sticks, 0, "the item burst");
         assert!(matches!(
@@ -1112,7 +1112,7 @@ mod tests {
             destroyed.len()
         );
         assert!(h.live().iter().all(|e| match &e.kind {
-            Kind::Item(i) => i.stack.item().unwrap().name() == "minecraft:dirt",
+            Kind::Item(i) => i.stack.item_type().unwrap().name() == "minecraft:dirt",
             _ => true,
         }));
     }

@@ -39,11 +39,6 @@ getters!(BlockBreak {
     /// What the player breaks it with (empty for a bare hand).
     #[doc(alias = "BlockBreakEvent::getItem")]
     item: &Stack,
-    /// Whether the break skipped the break time check: true for creative players, breaks the
-    /// API asks for and servers with `break-time-check = false`. A player's break that has not
-    /// lasted its time is refused before the event, so no listener can let it through.
-    #[doc(alias = "BlockBreakEvent::getInstaBreak")]
-    insta_break: bool,
     /// What the block drops. Starts as the block's own item: nothing for a block without an item
     /// form. A custom block starts with what its definition drops for the tool, and a player with
     /// unlimited resources (creative) starts with nothing.
@@ -57,6 +52,16 @@ setters!(BlockBreak {
     #[doc(alias = "BlockBreakEvent::setDropsVariadic")]
     set_drops => drops: Vec<Stack>,
 });
+
+impl BlockBreak {
+    /// Whether the break skipped the break time check: true for creative players, breaks the
+    /// API asks for and servers with `break-time-check = false`. A player's break that has not
+    /// lasted its time is refused before the event, so no listener can let it through.
+    #[doc(alias = "BlockBreakEvent::getInstaBreak")]
+    pub fn is_insta_break(&self) -> bool {
+        self.insta_break
+    }
+}
 
 cancellable! {
     BlockBreak
@@ -191,8 +196,10 @@ mod tests {
     use crate::block::{DIRT, GRASS_BLOCK};
     use crate::event::fixtures::{POS, player, sticks};
 
-    const WORLD: world::Id = world::Id::DEFAULT;
+    /// A second position, apart from `POS`.
     const OTHER: BlockPos = BlockPos::new(5, 6, 7);
+    /// The world of the events.
+    const WORLD: world::Id = world::Id::DEFAULT;
 
     // api: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock,
     // api: BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops,
@@ -215,7 +222,7 @@ mod tests {
             (player(1), WORLD, POS, DIRT)
         );
         assert_eq!(e.item(), &sticks(1));
-        assert!(!e.insta_break());
+        assert!(!e.is_insta_break());
         assert_eq!(e.drops(), &[sticks(2)]);
         e.set_drops(Vec::new());
         assert!(e.drops().is_empty());

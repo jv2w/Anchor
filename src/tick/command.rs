@@ -40,7 +40,7 @@ use crate::protocol::consts::{CommandOutputType, DisconnectReason, SoftEnumActio
 use crate::protocol::packet::{
     CommandOutput, CommandRequest, Disconnect, Packet, SetDifficulty, UpdateSoftEnum,
 };
-use crate::protocol::{COMMAND_DESCRIPTION_MAX_LEN, CommandOrigin, CommandOutputMessage};
+use crate::protocol::{CommandOrigin, CommandOutputMessage, MAX_COMMAND_DESCRIPTION};
 use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::AccessKey;
@@ -831,7 +831,7 @@ impl Context<'_> {
         let source = self.sender_name(sender).unwrap_or_default().to_owned();
         let copy = player::Message::Translation {
             key: format!("{ADMIN_PREFIX}%{ADMIN_KEY}"),
-            parameters: vec![source, message.to_owned()],
+            params: vec![source, message.to_owned()],
         };
         self.copy_result(sender, copy, message)
     }
@@ -965,7 +965,7 @@ impl Context<'_> {
     ///
     /// [`player::Error::TooLong`] for a message to a player too long for a client to decode, as
     /// [`Player::send`](player::Player::send) refuses it; the console's log takes any message.
-    /// [`player::Error::TooManyParameters`] for a message to a player with more parameters than
+    /// [`player::Error::TooManyParams`] for a message to a player with more parameters than
     /// a client decodes.
     #[doc(alias = "CommandSender::sendMessage")]
     #[doc(alias = "ConsoleCommandSender::sendMessage")]
@@ -1231,7 +1231,7 @@ fn check(command: &Command) -> register::Result<()> {
             reason,
         })
     };
-    if command.description.len() > COMMAND_DESCRIPTION_MAX_LEN {
+    if command.description.len() > MAX_COMMAND_DESCRIPTION {
         return Err(register::Error::DescriptionTooLong {
             command: command.name.clone(),
         });
@@ -1814,12 +1814,12 @@ pub(crate) fn refusals(state: &State, identity: &Identity) -> [Option<Refusal>; 
     let whitelisted = (!access.can_join(&identity.name)).then_some(Refusal::NotWhitelisted);
     let banned = access
         .ban_entry(&identity.name, state.tick)
-        .map(|ban| Refusal::Banned(ban.reason().to_owned()))
+        .map(|ban| Refusal::Banned(ban.reason().unwrap_or_default().to_owned()))
         .or_else(|| {
             identity
                 .address
                 .and_then(|ip| access.ip_ban_entry(ip, state.tick))
-                .map(|ban| Refusal::IpBanned(ban.reason().to_owned()))
+                .map(|ban| Refusal::IpBanned(ban.reason().unwrap_or_default().to_owned()))
         });
     [full, whitelisted, banned]
 }

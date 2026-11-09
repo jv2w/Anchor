@@ -575,18 +575,19 @@ impl Mut<'_> {
         Ok(())
     }
 
-    /// Sets its name tag (a human NPC's name).
+    /// Sets its name tag (a human NPC's name); `None` or an empty name clears it, as a client
+    /// shows an empty name tag as none.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::TooLong`] for a name over [`MAX_NAME_TAG_BYTES`].
     #[doc(alias = "Entity::setNameTag")]
-    pub fn set_name_tag(&mut self, name: impl Into<String>) -> Result<()> {
-        let name = name.into();
+    pub fn set_name_tag(&mut self, name: Option<&str>) -> Result<()> {
+        let name = name.unwrap_or_default();
         if name.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
+            return Err(Error::TooLong);
         }
-        self.shown_mut().name_tag = name;
+        name.clone_into(&mut self.shown_mut().name_tag);
         Ok(())
     }
 
@@ -616,13 +617,13 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::TooLong`] for a name over [`MAX_NAME_TAG_BYTES`].
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setOwner")]
     pub fn set_owner(&mut self, owner: impl Into<String>) -> Result<()> {
         let owner = owner.into();
         if owner.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
+            return Err(Error::TooLong);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
@@ -639,14 +640,14 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotOnline`] for a player who is not online.
+    /// [`Error::Offline`] for a player who is not in the game.
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "Entity::setOwningEntity")]
     pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> Result<()> {
         let runtime_id = match owner {
             Some(id) => match self.players.get(&id.session()) {
                 Some(p) if p.phase != Phase::Loading => p.runtime_id,
-                _ => return Err(Error::NotOnline),
+                _ => return Err(Error::Offline),
             },
             None => 0,
         };
@@ -788,7 +789,7 @@ impl Mut<'_> {
         let max = match &self.kind {
             Kind::Item(item) => item
                 .stack
-                .item()
+                .item_type()
                 .map_or(0, crate::item::Type::max_stack_size),
             _ => return Err(Error::WrongKind),
         };
@@ -809,7 +810,7 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotOnline`] for a player who is not online.
+    /// [`Error::Offline`] for a player who is not in the game.
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ExperienceOrb::setTargetPlayer")]
     pub fn set_target_player(&mut self, target: Option<player::Id>) -> Result<()> {
@@ -818,7 +819,7 @@ impl Mut<'_> {
                 .get(&id.session())
                 .is_none_or(|p| p.phase == Phase::Loading)
         }) {
-            return Err(Error::NotOnline);
+            return Err(Error::Offline);
         }
         match &mut self.entity_mut().kind {
             Kind::XpOrb(orb) => {
@@ -833,13 +834,13 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::TooLong`] for a name over [`MAX_NAME_TAG_BYTES`].
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setThrower")]
     pub fn set_thrower(&mut self, thrower: impl Into<String>) -> Result<()> {
         let thrower = thrower.into();
         if thrower.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
+            return Err(Error::TooLong);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
@@ -1360,10 +1361,10 @@ impl Entity {
         }
     }
 
-    /// Its name tag; a human NPC's is its name. Empty without one.
+    /// Its name tag, if it has one; a human NPC's is its name.
     #[doc(alias = "Entity::getNameTag")]
-    pub fn name_tag(&self) -> &str {
-        &self.name_tag
+    pub fn name_tag(&self) -> Option<&str> {
+        Some(self.name_tag.as_str()).filter(|tag| !tag.is_empty())
     }
 
     /// The Bedrock actor type clients draw, such as `minecraft:item`.
@@ -1648,7 +1649,7 @@ impl Context<'_> {
     /// The entity clients know by `runtime_id` (an index lookup; players are not entities here).
     #[doc(alias = "WorldManager::findEntity")]
     #[doc(alias = "World::getEntity")]
-    pub fn find_entity(&self, runtime_id: u64) -> Option<Id> {
+    pub fn entity_by_runtime_id(&self, runtime_id: u64) -> Option<Id> {
         super::find(self.state, runtime_id).filter(|&id| self.entity(id).is_some())
     }
 
@@ -1916,7 +1917,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer name.
+    /// [`Error::TooLong`] for a longer name.
     /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "Human::__construct")]
     pub fn spawn_human(
@@ -1928,7 +1929,7 @@ impl Context<'_> {
     ) -> Result<Id> {
         let name = name.into();
         if name.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
+            return Err(Error::TooLong);
         }
         let w = index(self.state, world).ok_or(Error::NotSpawned)?;
         let npc = Npc::Human { name, skin };

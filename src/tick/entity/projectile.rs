@@ -153,7 +153,7 @@ pub(super) fn throw_with(
     item: &Stack,
     hooks: Hooks,
 ) -> bool {
-    let Some(t) = item.item() else {
+    let Some(t) = item.item_type() else {
         return false;
     };
     let shot = if t.is(Class::Snowball) {
@@ -227,7 +227,7 @@ pub(super) fn release_bow_with(
         return false;
     };
     let bow = player.inventory.held().clone();
-    if !bow.item().is_some_and(|t| t.is(Class::Bow)) {
+    if !bow.item_type().is_some_and(|t| t.is(Class::Bow)) {
         return false;
     }
     let finite = survival::has_finite_resources(s.mode);
@@ -331,7 +331,7 @@ pub(super) fn release_trident_with(
         return false;
     };
     let held = player.inventory.held().clone();
-    if !held.item().is_some_and(|t| t.is(Class::Trident)) || used_ticks < MIN_TRIDENT_TICKS {
+    if !held.item_type().is_some_and(|t| t.is(Class::Trident)) || used_ticks < MIN_TRIDENT_TICKS {
         return false;
     }
     let mut item = held.with_count(1);
@@ -1008,9 +1008,8 @@ fn potion_hit(
 }
 
 /// The splash particle in a colour and the glass sound.
-fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, colour: [u8; 4]) {
-    let [r, g, b, a] = colour;
-    let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
+fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, colour: crate::protocol::Rgba) {
+    let splash = crate::world::Particle::PotionSplash(colour);
     crate::tick::emit::particle(state, world, at, splash);
     super::play(state, world, at, crate::world::Sound::PotionSplash);
 }
@@ -1890,7 +1889,10 @@ mod tests {
             c.arrows = 1;
         });
         let bow = stack("minecraft:bow", 1);
-        let max = bow.item().and_then(item::Type::max_durability).unwrap();
+        let max = bow
+            .item_type()
+            .and_then(item::Type::max_durability)
+            .unwrap();
         let broken = bow.with_damage(max).unwrap();
         inventory::set_held(
             h.state.players.get_mut(&session(1)).unwrap(),
@@ -1971,7 +1973,7 @@ mod tests {
             let inv = &h.state.players[&session(1)].inventory;
             let main: u8 = (0..36)
                 .filter_map(|i| inv.main_stack(i))
-                .filter(|s| s.item().and_then(item::Type::kind) == Some(item::Kind::Arrow))
+                .filter(|s| s.item_type().and_then(item::Type::kind) == Some(item::Kind::Arrow))
                 .map(Stack::count)
                 .sum();
             (inv.offhand().count(), main)

@@ -100,9 +100,9 @@ cancellable! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlotChange {
     pub(crate) inventory: Inventory,
-    pub(crate) slot: u8,
-    pub(crate) before: Stack,
-    pub(crate) after: Stack,
+    pub(crate) slot: usize,
+    pub(crate) old_item: Stack,
+    pub(crate) new_item: Stack,
 }
 
 getters!(SlotChange {
@@ -111,13 +111,13 @@ getters!(SlotChange {
     inventory: Inventory,
     /// The slot in its inventory.
     #[doc(alias = "SlotChangeAction::getSlot")]
-    slot: u8,
+    slot: usize,
     /// What the slot held before.
     #[doc(alias = "InventoryAction::getSourceItem")]
-    before: &Stack,
+    old_item: &Stack,
     /// What the slot holds after.
     #[doc(alias = "InventoryAction::getTargetItem")]
-    after: &Stack,
+    new_item: &Stack,
 });
 
 /// Where a slot of a player's transaction lives.
@@ -242,8 +242,8 @@ mod tests {
         let change = SlotChange {
             inventory: Inventory::Player(Kind::Main),
             slot: 4,
-            before: sticks(2),
-            after: Stack::EMPTY,
+            old_item: sticks(2),
+            new_item: Stack::EMPTY,
         };
         let mut e = InventoryTransaction {
             player: player(1),
@@ -257,7 +257,7 @@ mod tests {
             (Inventory::Player(Kind::Main), 4)
         );
         assert_eq!(
-            (change.before(), change.after()),
+            (change.old_item(), change.new_item()),
             (&sticks(2), &Stack::EMPTY)
         );
         e.cancel();

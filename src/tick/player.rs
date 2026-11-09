@@ -506,6 +506,63 @@ impl Player {
         Ok(())
     }
 
+    /// Shows the particle effect named `name` (a vanilla or resource pack effect, such as
+    /// `minecraft:totem_particle`) to this player alone at `pos`. [`Context::add_particle`] shows
+    /// the world's particles to everyone who sees a place.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
+    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
+    pub fn add_named_particle(&mut self, pos: Vec3, name: &str) -> Result<()> {
+        check_position(pos)?;
+        crate::player::check_text(name)?;
+        self.send_packet(Packet::SpawnParticleEffect(SpawnParticleEffect {
+            // The overworld (`Dimension::Overworld`), every world's dimension.
+            dimension: 0,
+            // Not an entity's: shown at the position.
+            entity_unique_id: -1,
+            position: pos.to_f32(),
+            particle_name: name.to_owned(),
+            molang_variables: None,
+        }));
+        Ok(())
+    }
+
+    /// Plays the sound named `name` (a vanilla or resource pack sound, such as `random.orb`) to
+    /// this player alone at `pos`, once; a `volume` and `pitch` of 1 are the sound's own.
+    /// [`Context::add_sound`] plays the world's sounds to everyone who sees a place.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
+    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
+    /// [`Error::OutOfRange`] for a volume or pitch that is negative or not finite.
+    pub fn add_named_sound(
+        &mut self,
+        pos: Vec3,
+        name: &str,
+        volume: f32,
+        pitch: f32,
+    ) -> Result<()> {
+        check_position(pos)?;
+        crate::player::check_text(name)?;
+        if ![volume, pitch].iter().all(|v| v.is_finite() && *v >= 0.0) {
+            return Err(Error::OutOfRange);
+        }
+        self.send_packet(Packet::PlaySound(PlaySound {
+            sound_name: name.to_owned(),
+            position: pos.to_f32(),
+            volume,
+            pitch,
+            loop_count: 0,
+            bypass_listener_range_check: false,
+            handle: None,
+            playback_position_seconds: None,
+        }));
+        Ok(())
+    }
+
     /// Plays one of the world's sounds to this player alone at `pos`, as [`Context::add_sound`]
     /// plays it to everyone who sees the place.
     ///
@@ -549,34 +606,6 @@ impl Player {
         Ok(())
     }
 
-    /// Plays the sound named `name` (a vanilla or resource pack sound, such as `random.orb`) to
-    /// this player alone at `pos`, once; a `volume` and `pitch` of 1 are the sound's own.
-    /// [`Context::add_sound`] plays the world's sounds to everyone who sees a place.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
-    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
-    /// [`Error::OutOfRange`] for a volume or pitch that is negative or not finite.
-    pub fn play_sound(&mut self, name: &str, pos: Vec3, volume: f32, pitch: f32) -> Result<()> {
-        crate::player::check_text(name)?;
-        check_position(pos)?;
-        if ![volume, pitch].iter().all(|v| v.is_finite() && *v >= 0.0) {
-            return Err(Error::OutOfRange);
-        }
-        self.send_packet(Packet::PlaySound(PlaySound {
-            sound_name: name.to_owned(),
-            position: pos.to_f32(),
-            volume,
-            pitch,
-            loop_count: 0,
-            bypass_listener_range_check: false,
-            handle: None,
-            playback_position_seconds: None,
-        }));
-        Ok(())
-    }
-
     /// Shows the player `message`. The packets follow this tick's
     /// other packets. More than 4,096 packets queued in one tick disconnect the player
     /// ([`send_packet`](Self::send_packet)). A message a client does not decode ([`Message`] gives
@@ -585,7 +614,7 @@ impl Player {
     /// # Errors
     ///
     /// [`Error::TooLong`] for a text or chat source name over its bound.
-    /// [`Error::TooManyParameters`] for more than 4 translation parameters.
+    /// [`Error::TooManyParams`] for more than 4 translation parameters.
     #[doc(alias = "Player::sendMessage")]
     #[doc(alias = "Player::sendTip")]
     #[doc(alias = "Player::sendPopup")]
@@ -636,29 +665,6 @@ impl Player {
     /// an element that is shown is not sent again.
     pub fn show_hud(&mut self, elements: &[HudElement]) {
         self.change_hud(elements, HudVisibility::Reset);
-    }
-
-    /// Shows the particle effect named `name` (a vanilla or resource pack effect, such as
-    /// `minecraft:totem_particle`) to this player alone at `pos`. [`Context::add_particle`] shows
-    /// the world's particles to everyone who sees a place.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
-    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
-    pub fn show_particle(&mut self, name: &str, pos: Vec3) -> Result<()> {
-        crate::player::check_text(name)?;
-        check_position(pos)?;
-        self.send_packet(Packet::SpawnParticleEffect(SpawnParticleEffect {
-            // The overworld (`Dimension::Overworld`), every world's dimension.
-            dimension: 0,
-            // Not an entity's: shown at the position.
-            entity_unique_id: -1,
-            position: pos.to_f32(),
-            particle_name: name.to_owned(),
-            molang_variables: None,
-        }));
-        Ok(())
     }
 
     /// Sends the player to the server at `address` (a host name or IP address) and `port` at the
@@ -838,9 +844,9 @@ impl Context<'_> {
     pub fn teleport(&mut self, player: Id, world: world::Id, feet: Vec3) -> Result<()> {
         let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
         let checked = survival::check_destination(self.state, world.index(), eye);
-        let p = self.player_mut(player).ok_or(Error::Offline)?;
+        self.player(player).ok_or(Error::Offline)?;
         checked?;
-        p.marks.teleport = Some((world.index(), eye));
+        set_teleport_mark(self.state, player.session(), Some((world.index(), eye)));
         Ok(())
     }
 
@@ -961,12 +967,18 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
 /// into `from` that waits for the end of a tick (marked by a listener of the view phase) goes
 /// there too, so a teleport that succeeded is never dropped.
 pub(super) fn redirect_teleports(state: &mut State, from: WorldIndex, to: WorldIndex, eye: Vec3) {
-    for player in state.players.values_mut() {
-        if let Some(mark) = &mut player.marks.teleport
-            && mark.0 == from
-        {
-            *mark = (to, eye);
-        }
+    let marked: Vec<SessionId> = state
+        .sessions_in(from)
+        .filter(|s| {
+            state
+                .players
+                .get(s)
+                .and_then(|p| p.marks.teleport)
+                .is_some_and(|(world, _)| world == from)
+        })
+        .collect();
+    for session in marked {
+        set_teleport_mark(state, session, Some((to, eye)));
     }
 }
 
@@ -1009,7 +1021,7 @@ pub(super) fn quit(
         let message = if message == LEFT {
             Message::Translation {
                 key: message,
-                parameters: vec![name],
+                params: vec![name],
             }
         } else {
             Message::Raw(message)
@@ -1023,13 +1035,23 @@ pub(super) fn quit(
 
 /// Moves the player of `session` if it was teleported.
 fn teleport_marked(state: &mut State, session: SessionId) {
-    if let Some((world, eye)) = state
-        .players
-        .get_mut(&session)
-        .and_then(|p| p.marks.teleport.take())
-    {
-        survival::teleport(state, session, world, eye);
-    }
+    let Some((world, eye)) = state.players.get(&session).and_then(|p| p.marks.teleport) else {
+        return;
+    };
+    set_teleport_mark(state, session, None);
+    survival::teleport(state, session, world, eye);
+}
+
+/// Sets the teleport mark of the player of `session`, if any (`None` clears it), with its
+/// entries of the index of the players in each world, which follows the world it is seen in
+/// ([`Player::world`]).
+fn set_teleport_mark(state: &mut State, session: SessionId, mark: Option<(WorldIndex, Vec3)>) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    State::unindex_worlds(&mut state.world_players, player);
+    player.marks.teleport = mark;
+    State::index_worlds(&mut state.world_players, player);
 }
 
 /// Sends `message` to every online player; returns how many got it. Fails, sending nothing, for a
@@ -1330,7 +1352,7 @@ pub(super) mod tests {
             Message::Popup("popup".to_owned()),
             Message::JukeboxPopup {
                 key: "record.nowPlaying".to_owned(),
-                parameters: vec!["cat".to_owned()],
+                params: vec!["cat".to_owned()],
             },
             Message::ActionBar("bar".to_owned()),
             Message::Title {
@@ -1536,12 +1558,13 @@ pub(super) mod tests {
         let (mut state, [mut rx1, mut rx2]) = two();
         let at = Vec3::new(1.5, -59.0, 2.5);
         let p = player_mut(&mut state, 1);
-        p.play_sound("random.orb", at, 0.5, 1.5).unwrap();
+        p.add_named_sound(at, "random.orb", 0.5, 1.5).unwrap();
         p.add_sound(at, crate::world::Sound::ChestOpen).unwrap();
-        p.show_particle("minecraft:totem_particle", at).unwrap();
+        p.add_named_particle(at, "minecraft:totem_particle")
+            .unwrap();
         let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
         assert_eq!(
-            p.play_sound("random.orb", nowhere, 1.0, 1.0),
+            p.add_named_sound(nowhere, "random.orb", 1.0, 1.0),
             Err(Error::OutsideWorld)
         );
         assert_eq!(
@@ -1549,20 +1572,20 @@ pub(super) mod tests {
             Err(Error::OutsideWorld)
         );
         assert_eq!(
-            p.show_particle("minecraft:totem_particle", nowhere),
+            p.add_named_particle(nowhere, "minecraft:totem_particle"),
             Err(Error::OutsideWorld)
         );
         assert_eq!(
-            p.play_sound("random.orb", at, f32::NAN, 1.0),
+            p.add_named_sound(at, "random.orb", f32::NAN, 1.0),
             Err(Error::OutOfRange)
         );
         assert_eq!(
-            p.play_sound("random.orb", at, 1.0, -1.0),
+            p.add_named_sound(at, "random.orb", 1.0, -1.0),
             Err(Error::OutOfRange)
         );
         let long = "x".repeat(MAX_TEXT_BYTES + 1);
-        assert_eq!(p.play_sound(&long, at, 1.0, 1.0), Err(Error::TooLong));
-        assert_eq!(p.show_particle(&long, at), Err(Error::TooLong));
+        assert_eq!(p.add_named_sound(at, &long, 1.0, 1.0), Err(Error::TooLong));
+        assert_eq!(p.add_named_particle(at, &long), Err(Error::TooLong));
         run(&mut state, Vec::new());
         let effects = |packets: Vec<Packet>| -> Vec<Packet> {
             packets

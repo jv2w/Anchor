@@ -639,10 +639,10 @@ impl Player {
         self.survival.saturation
     }
 
-    /// The line shown under the name tag; empty for none.
+    /// The line shown under the name tag, if any.
     #[doc(alias = "Entity::getScoreTag")]
-    pub fn score_tag(&self) -> &str {
-        &self.survival.custom.score_tag
+    pub fn score_tag(&self) -> Option<&str> {
+        Some(self.survival.custom.score_tag.as_str()).filter(|tag| !tag.is_empty())
     }
 
     /// The player's own respawn point: the world name and block, set by
@@ -1345,17 +1345,18 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the line shown under the name tag. Fails for a tag longer than 65,536 bytes.
+    /// Sets the line shown under the name tag; `None` or an empty line clears it, as a client
+    /// shows an empty line as none. Fails for a tag longer than 65,536 bytes.
     ///
     /// # Errors
     ///
     /// [`Error::TooLong`] for a tag longer than 65,536 bytes.
     #[doc(alias = "Entity::setScoreTag")]
-    pub fn set_score_tag(&mut self, tag: impl Into<String>) -> Result<()> {
-        let tag = tag.into();
-        check_text(&tag)?;
+    pub fn set_score_tag(&mut self, tag: Option<&str>) -> Result<()> {
+        let tag = tag.unwrap_or_default();
+        check_text(tag)?;
         let s = &mut self.survival;
-        s.custom.score_tag = tag;
+        tag.clone_into(&mut s.custom.score_tag);
         s.touch(TAGS);
         Ok(())
     }
@@ -2391,18 +2392,18 @@ mod tests {
         let (mut state, [mut rx1, mut rx2]) = two();
         let before = state.hash();
         let p = player_mut(&mut state, 1);
-        assert_eq!((p.name_tag(), p.score_tag()), ("player1", ""));
+        assert_eq!((p.name_tag(), p.score_tag()), ("player1", None));
         assert_eq!(
             p.set_name_tag("x".repeat(MAX_TEXT_BYTES + 1)),
             Err(Error::TooLong)
         );
         p.set_name_tag("§cRed").unwrap();
-        p.set_score_tag("10 kills").unwrap();
+        p.set_score_tag(Some("10 kills")).unwrap();
         p.set_invisible(true);
         p.set_silent(true);
         p.set_no_client_predictions(true);
         assert!(p.is_invisible() && p.is_silent() && p.has_no_client_predictions());
-        assert_eq!((p.name_tag(), p.score_tag()), ("§cRed", "10 kills"));
+        assert_eq!((p.name_tag(), p.score_tag()), ("§cRed", Some("10 kills")));
         assert_ne!(state.hash(), before);
         run(&mut state, Vec::new());
         for rx in [&mut rx1, &mut rx2] {
@@ -2581,7 +2582,7 @@ mod tests {
         let p = player_mut(&mut state, 1);
         assert_eq!(p.armor_points(), 0);
         let helmet = Stack::new(ItemKind::DiamondHelmet.default_type(), 1);
-        let points = u32::from(helmet.item().unwrap().armor_points());
+        let points = u32::from(helmet.item_type().unwrap().armor_points());
         inventory::set_armor(p, 0, helmet);
         assert_eq!(p.armor_points(), points);
         assert_eq!(p.last_damage_cause(), None);

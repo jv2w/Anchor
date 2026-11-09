@@ -38,8 +38,8 @@ impl Action for AttackBlock {}
 
 /// A player's immediate break of the block at `pos` with the held item.
 ///
-/// It is as if the break time had passed ([`BlockBreak`](crate::event::BlockBreak) starts with
-/// `insta_break` set). The position is in the world the player is in when the action runs, and
+/// It is as if the break time had passed
+/// ([`BlockBreak::is_insta_break`](crate::event::BlockBreak::is_insta_break) is true). The position is in the world the player is in when the action runs, and
 /// the player's open window closes first, as for the player's own break. Drops and tool wear are
 /// the player's own break's.
 #[doc(alias = "Player::breakBlock")]

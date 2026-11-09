@@ -250,8 +250,9 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     {
         let mut cx = h.context();
         let mut e = cx.entity_mut(id).unwrap();
-        e.set_name_tag("Boom").unwrap();
-        assert!(e.set_name_tag("x".repeat(1025)).is_err());
+        assert_eq!(e.name_tag(), None);
+        e.set_name_tag(Some("Boom")).unwrap();
+        assert_eq!(e.set_name_tag(Some(&"x".repeat(1025))), Err(Error::TooLong));
         e.set_name_tag_visible(false);
         e.set_name_tag_always_visible(true);
         e.set_scale(2.0).unwrap();
@@ -260,7 +261,7 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
         }
         e.set_invisible(true);
         e.set_has_gravity(false);
-        assert_eq!(e.name_tag(), "Boom");
+        assert_eq!(e.name_tag(), Some("Boom"));
         assert!(!e.is_name_tag_visible() && e.is_name_tag_always_visible());
         assert_eq!(e.scale(), 2.0);
         assert!(e.is_invisible() && !e.has_gravity());
@@ -709,8 +710,8 @@ fn queries_go_through_the_chunk_index_whatever_the_area() {
     h.entities();
     let cx = h.context();
     let runtime_id = cx.entity(ids[5]).unwrap().runtime_id().unwrap();
-    assert_eq!(cx.find_entity(runtime_id), Some(ids[5]));
-    assert_eq!(cx.find_entity(u64::MAX), None);
+    assert_eq!(cx.entity_by_runtime_id(runtime_id), Some(ids[5]));
+    assert_eq!(cx.entity_by_runtime_id(u64::MAX), None);
 }
 
 #[test]
@@ -863,7 +864,7 @@ fn animations_reach_the_players_who_see_the_actor_with_the_official_values() {
     h.entities();
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let apple = stack("minecraft:apple", 1).item().unwrap();
+    let apple = stack("minecraft:apple", 1).item_type().unwrap();
     let all = [
         (Animation::ArmSwing, (4, 0.0)),
         (Animation::ArrowShake { ticks: 7 }, (39, 7.0)),
@@ -1149,7 +1150,7 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
         let name = match t {
             Type::Villager => Some("Villager".to_owned()),
             Type::Zombie => Some("Zombie".to_owned()),
-            Type::Human => Some(e.name_tag().to_owned()),
+            Type::Human => Some(e.name_tag().unwrap_or_default().to_owned()),
             _ => None,
         };
         assert_eq!(e.name().map(str::to_owned), name);

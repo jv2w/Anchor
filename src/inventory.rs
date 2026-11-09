@@ -69,8 +69,8 @@ impl Kind {
 pub enum Error {
     /// The inventory has no such slot.
     NoSlot,
-    /// No player has the ID: it has left.
-    NoPlayer,
+    /// The player is not in the game: it has left, or has not joined yet.
+    Offline,
     /// No alternative creative inventory has the name.
     NoCreativeInventory,
     /// The player holds as many stacks outside its slots (cursor, window, a closing menu's while
@@ -89,7 +89,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoSlot => f.write_str("no such slot"),
-            Self::NoPlayer => f.write_str("no such player"),
+            Self::Offline => f.write_str("the player is not in the game"),
             Self::NoCreativeInventory => f.write_str("no such creative inventory"),
             Self::Full => f.write_str("too many stacks held outside the slots"),
             Self::TooLong => f.write_str("more stacks than slots"),
@@ -314,9 +314,9 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// The most items of `stack` one slot of this inventory holds.
+    /// The most items of `stack` one slot of this inventory holds (none of an empty stack).
     fn slot_max(&self, stack: &Stack) -> u8 {
-        stack.max_stack_size().min(self.max)
+        stack.max_stack_size().map_or(0, |max| max.min(self.max))
     }
 }
 
@@ -369,8 +369,8 @@ pub(crate) struct BlockSlots<'a> {
 /// Whether `have` is `want`'s item for finding and taking: the same type and damage, and the
 /// same extra data when `want` has some.
 pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
-    have.item().is_some()
-        && have.item() == want.item()
+    have.item_type().is_some()
+        && have.item_type() == want.item_type()
         && have.damage() == want.damage()
         && (want.extra().is_none() || have.extra() == want.extra())
 }

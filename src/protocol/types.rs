@@ -11,28 +11,28 @@ use super::{
 use crate::nbt;
 
 /// The most bytes or elements of gophertunnel `packet.BossEvent.BossBarTitle` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN: usize = 256;
+pub(crate) const MAX_BOSS_EVENT_BOSS_BAR_TITLE: usize = 256;
 
 /// The most bytes or elements of gophertunnel `protocol.Command.Description` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const COMMAND_DESCRIPTION_MAX_LEN: usize = 1000;
+pub(crate) const MAX_COMMAND_DESCRIPTION: usize = 1000;
 
 /// The most bytes or elements of gophertunnel `protocol.PackSetting.Name` (Mojang `maxLength`, `maxItems`), for its hand codec.
-pub(crate) const PACK_SETTING_NAME_MAX_LEN: usize = 128;
+pub(crate) const MAX_PACK_SETTING_NAME: usize = 128;
 
 /// The most bytes or elements of gophertunnel `packet.PlayerList.Entries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
+pub(crate) const MAX_PLAYER_LIST_ENTRIES: usize = 1000;
 
 /// The most bytes or elements of gophertunnel `packet.SubChunk.SubChunkEntries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN: usize = 8192;
+pub(crate) const MAX_SUB_CHUNK_SUB_CHUNK_ENTRIES: usize = 8192;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Message` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65_536;
+pub(crate) const MAX_TEXT_MESSAGE: usize = 65_536;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Parameters` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const TEXT_PARAMETERS_MAX_LEN: usize = 4;
+pub(crate) const MAX_TEXT_PARAMETERS: usize = 4;
 
 /// The most bytes or elements of gophertunnel `packet.Text.SourceName` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const TEXT_SOURCE_NAME_MAX_LEN: usize = 256;
+pub(crate) const MAX_TEXT_SOURCE_NAME: usize = 256;
 
 // The sizes the generator boxes by (`HAND_TYPES`).
 const _: () = assert!(std::mem::size_of::<BlockPos>() == 12);

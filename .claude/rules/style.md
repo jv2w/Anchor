@@ -98,6 +98,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Where code departs from the Rust API Guidelines or std's naming and shape, the reason (safety, determinism, a protocol fact) is one comment line at that spot.
 - Outside explanation points to `.claude/docs/<file>.md` by file name only, never by section.
 - The first sentence of every rustdoc summarizes the item and ends with a period; it may wrap onto the next line, and a longer description follows it. Functions start with a third-person verb ("Reads", "Sets"); types, fields, variants, constants, constructors, getters, `_mut` lenders, and queries (methods and free functions that only read) with a noun phrase ("A new empty chunk.", "The chunks written.", "The chunk, to change it.", "Whether the file is new."). A test's rustdoc states the behavior it checks, never "Checks that". The rustdoc of a `with_<field>` method is "The same <type> with …"; of a method that adds an element to a list, "Adds …".
+- The rustdoc of a random stream's purpose constant (`random::tag`) is "The random stream of <what it draws for>." Every `hash_into` (a test's state hash) has a rustdoc "Hashes <what it hashes> (state hash).", with any longer description after the parenthesis.
 
 ## Language and names in documents
 - Identifiers, comments, rustdoc, logs, `CLAUDE.md`, and everything under `.claude/` are English. Reports to the user are Korean (`CLAUDE.md`).

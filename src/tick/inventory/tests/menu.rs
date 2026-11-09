@@ -696,7 +696,7 @@ fn refuse_change(_: &mut Context<'_>, _: crate::player::Id, _: &m::Change) -> Re
 }
 
 /// The changes as (a menu slot, slot, before, after).
-fn described(change: &m::Change) -> Vec<(bool, u8, Stack, Stack)> {
+fn described(change: &m::Change) -> Vec<(bool, usize, Stack, Stack)> {
     change
         .changes()
         .iter()
@@ -704,8 +704,8 @@ fn described(change: &m::Change) -> Vec<(bool, u8, Stack, Stack)> {
             (
                 c.inventory() == crate::event::Inventory::Window,
                 c.slot(),
-                c.before().clone(),
-                c.after().clone(),
+                c.old_item().clone(),
+                c.new_item().clone(),
             )
         })
         .collect()
@@ -1021,8 +1021,7 @@ fn a_change_whose_handler_changes_a_slot_it_names_is_refused() {
     fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
         for c in change.changes() {
             if c.inventory() == crate::event::Inventory::Window {
-                cx.set_menu_item(player, usize::from(c.slot()), sticks(1))
-                    .unwrap();
+                cx.set_menu_item(player, c.slot(), sticks(1)).unwrap();
             }
         }
         Response::Keep
@@ -1086,7 +1085,10 @@ fn a_handler_knows_each_player_slot_a_change_names_though_it_stays() {
         change: &m::Change,
     ) -> Response {
         let main = crate::inventory::Kind::Main;
-        if change.is_slot_named(crate::event::Inventory::Player(main), STORE_SLOT) {
+        if change.is_slot_named(
+            crate::event::Inventory::Player(main),
+            usize::from(STORE_SLOT),
+        ) {
             return Response::Refuse;
         }
         cx.player_mut(player)
@@ -1156,8 +1158,7 @@ fn a_handler_refills_a_slot_once_the_change_is_made() {
     fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
         for c in change.changes() {
             if c.inventory() == crate::event::Inventory::Window {
-                let (slot, stack, left) =
-                    (usize::from(c.slot()), c.before().clone(), c.after().clone());
+                let (slot, stack, left) = (c.slot(), c.old_item().clone(), c.new_item().clone());
                 // As `Change` says: only if no later request changed the slot again.
                 cx.defer(move |cx| {
                     if cx.menu_items(player).and_then(|items| items.get(slot)) == Some(&left) {
@@ -1609,7 +1610,7 @@ fn open_lending(
                         .changes()
                         .iter()
                         .filter(|c| c.inventory() == crate::event::Inventory::Window)
-                        .map(|c| i64::from(c.after().count()) - i64::from(c.before().count()))
+                        .map(|c| i64::from(c.new_item().count()) - i64::from(c.old_item().count()))
                         .sum();
                     let lent = i64::from(change.lent_after()) - i64::from(change.lent_before());
                     STORE.set(STORE.get() + window + lent);

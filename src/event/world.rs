@@ -235,8 +235,10 @@ mod tests {
 
     use crate::event::fixtures::player;
 
-    const WORLD: world::Id = world::Id::DEFAULT;
+    /// The chunk of the events.
     const CHUNK: ChunkPos = ChunkPos::new(-3, 4);
+    /// The world of the events.
+    const WORLD: world::Id = world::Id::DEFAULT;
 
     // api: ChunkPopulateEvent, ChunkLoadEvent, ChunkUnloadEvent, ChunkEvent::getChunkX,
     // api: ChunkEvent::getChunkZ, ChunkLoadEvent::isNewChunk, ChunkUnloadEvent::cancel,

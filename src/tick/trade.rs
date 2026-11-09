@@ -29,16 +29,16 @@ pub(super) use api::new_offers;
 pub(super) use offers::{Damage, Error, Offers, Result, StoredOffer};
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-use tracing::{error, warn};
+use tracing::error;
 
 use super::{SessionId, State, dispatch, entity, inventory};
 use crate::entity::Id;
 use crate::event::TradeOpen;
 use crate::item::{Stack, Type};
 use crate::math::Vec3;
-use crate::nbt::Encoding;
-use crate::protocol::Writer;
+use crate::nbt::Compound;
 use crate::protocol::consts::ContainerType;
 use crate::protocol::packet::{Packet, UpdateTrade};
 use crate::random::{self, Random};
@@ -104,6 +104,7 @@ pub(super) struct Trades {
 }
 
 impl Trades {
+    /// Hashes the state kept between ticks (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -247,29 +248,22 @@ struct View {
     tier: u8,
     unique_id: u64,
     profession: u8,
-    /// The offers in network NBT.
-    offers: Vec<u8>,
+    /// The offers as `UpdateTrade` sends them, shared by every trader's packet; the output phase
+    /// encodes them, off the tick. They fit one NBT root, as `Offers` keeps its saved form at
+    /// half of one.
+    offers: Arc<Compound>,
 }
 
 impl View {
-    /// The villager's screen as it is now; `None` if it is gone, its offers have no
-    /// network IDs or are too large to send.
+    /// The villager's screen as it is now; `None` if it is gone or its offers have no network
+    /// IDs, which a list too large to send never gets (`Offers::allocate_net_ids`).
     fn of(state: &State, villager: Id, hooks: Hooks) -> Option<Self> {
         let v = (hooks.villager)(state, villager)?;
-        let nbt = v.offers.wire_nbt()?;
-        let mut w = Writer::new(Vec::new(), 0);
-        if let Err(e) = w.nbt(&nbt, Encoding::NetworkLittleEndian) {
-            warn!(
-                error = &e as &(dyn std::error::Error + 'static),
-                "villager offers cannot be sent"
-            );
-            return None;
-        }
         Some(Self {
             tier: v.offers.tier(),
             unique_id: v.unique_id,
             profession: v.profession,
-            offers: w.into_inner(),
+            offers: Arc::new(v.offers.wire_nbt()?),
         })
     }
 
@@ -285,7 +279,7 @@ impl View {
             display_name: display_name(self.profession).to_owned(),
             new_trade_ui: true,
             demand_based_prices: true,
-            serialised_offers: self.offers.clone(),
+            serialised_offers: Arc::clone(&self.offers),
         })
     }
 }
@@ -396,8 +390,8 @@ pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<
 /// the same item name.
 pub(super) fn is_payment(want: &Stack, damage: Damage, given: &Stack) -> bool {
     let item = match damage {
-        Damage::Exact => given.item() == want.item() && given.damage() == want.damage(),
-        Damage::Any => given.item().map(Type::name) == want.item().map(Type::name),
+        Damage::Exact => given.item_type() == want.item_type() && given.damage() == want.damage(),
+        Damage::Any => given.item_type().map(Type::name) == want.item_type().map(Type::name),
     };
     !want.is_empty() && item && (want.extra().is_none() || given.extra() == want.extra())
 }
@@ -537,9 +531,9 @@ fn change_offers_with<T>(
     Ok(out)
 }
 
-/// Sends the villager's offers again to everyone trading with it (a new tier, a changed list);
-/// a list too large to send closes their windows instead, raising no `InventoryClose` (the
-/// change is a direct API call).
+/// Sends the villager's offers again to everyone trading with it (a new tier, a changed list),
+/// one shared compound for all of them; a list too large to send closes their windows instead,
+/// raising no `InventoryClose` (the change is a direct API call).
 fn refresh(state: &mut State, villager: Id, hooks: Hooks) {
     let traders = state.trades.traders(villager);
     if traders.is_empty() {

@@ -41,8 +41,8 @@ pub struct Chunk {
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
     /// The highest non-air layer 0 block of each column ([`column()`]), or [`NO_HEIGHT`].
     heights: Box<[i16; COLUMNS]>,
-    /// The original NBT of each unknown state, by [`Entry::unknown_index`].
-    unknown: Arc<Vec<nbt::Compound>>,
+    /// The original NBT of each unknown state, by [`Entry::unknown_index`], with its index.
+    unknown: Arc<UnknownStates>,
     /// The sub-chunks changed since the world's last save snapshot, one bit per index.
     dirty: u32,
     /// Whether the server file holds this chunk, so a save writes only the changed sub-chunks.
@@ -86,7 +86,7 @@ impl Chunk {
             sub_chunks: Default::default(),
             biomes: std::array::from_fn(|_| Arc::clone(&plains)),
             heights: Box::new([NO_HEIGHT; COLUMNS]),
-            unknown: Arc::new(Vec::new()),
+            unknown: Arc::new(UnknownStates::default()),
             dirty: 0,
             split: false,
             light: None,
@@ -117,7 +117,9 @@ impl Chunk {
         Some(match self.entry(x, y, z)? {
             Entry::Known(state) => StoredBlock::Known(state),
             Entry::Unknown(i) => {
-                let index = usize::try_from(i).ok().filter(|&i| i < self.unknown.len());
+                let index = usize::try_from(i)
+                    .ok()
+                    .filter(|&i| i < self.unknown.states.len());
                 #[expect(
                     clippy::expect_used,
                     reason = "invariant: from_parts and the checkpoint read only chunks that pass unknown_indexes_fit"
@@ -241,7 +243,7 @@ impl Chunk {
 
     /// The original NBT of the unknown states, by [`Entry::unknown_index`].
     pub(crate) fn unknown(&self) -> &[nbt::Compound] {
-        &self.unknown
+        &self.unknown.states
     }
 
     /// The chunk's light, to change it.
@@ -273,10 +275,7 @@ impl Chunk {
         z: u8,
         nbt: nbt::Compound,
     ) -> Option<Entry> {
-        let mut list = self.unknown.to_vec();
-        let entry = Entry::Unknown(u32::try_from(list.len()).ok()?);
-        list.push(nbt);
-        self.unknown = Arc::new(list);
+        let entry = Entry::Unknown(Arc::make_mut(&mut self.unknown).push(nbt));
         self.put(x, y, z, entry)?;
         Some(entry)
     }
@@ -286,13 +285,13 @@ impl Chunk {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the chunk.
+    /// [`Error::OutsideWorld`] for a position outside the chunk.
     #[doc(alias = "Chunk::setBiomeId")]
     pub fn set_biome(&mut self, x: u8, y: i32, z: u8, biome: u32) -> Result<()> {
         let (index, y) = split_y(y)
             .filter(|_| x < 16 && z < 16)
-            .ok_or(Error::OutOfRange)?;
-        let storage = self.biomes.get_mut(index).ok_or(Error::OutOfRange)?;
+            .ok_or(Error::OutsideWorld)?;
+        let storage = self.biomes.get_mut(index).ok_or(Error::OutsideWorld)?;
         Arc::make_mut(storage).set(offset(x, y, z), biome);
         Ok(())
     }
@@ -303,12 +302,12 @@ impl Chunk {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the chunk.
+    /// [`Error::OutsideWorld`] for a position outside the chunk.
     #[doc(alias = "Chunk::setBlockStateId")]
     pub fn set_block(&mut self, x: u8, y: i32, z: u8, state: State) -> Result<()> {
         self.put(x, y, z, Entry::Known(state))
             .map(|_| ())
-            .ok_or(Error::OutOfRange)
+            .ok_or(Error::OutsideWorld)
     }
 
     /// Sets the layer 0 entry at local (x, y, z), clears the slot's layer 1 water, and returns the
@@ -373,34 +372,30 @@ impl Chunk {
     }
 
     /// Finds or adds the entry of `block` in this chunk: its index here if it was read from this
-    /// chunk's list, else that of an equal stored state, else a new one at the end. Fails with
+    /// chunk's list, else the first of an equal stored state (a binary search of the list's
+    /// index), else a new one at the end. Fails with
     /// [`Error::Full`] when the list holds [`MAX_UNKNOWN`] states.
     pub(super) fn unknown_entry(&mut self, block: &UnknownBlock) -> Result<Entry> {
         let nbt = block.nbt();
         let found = if Arc::ptr_eq(&block.list, &self.unknown) {
-            Some(block.index)
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
+            )]
+            let index = u32::try_from(block.index).expect("an unknown state index past u32");
+            Some(index)
         } else {
-            // A linear scan of a list that holds one state per unknown palette entry the chunk
-            // was read with (a state in several palettes once for each) and each distinct state
-            // written here once, at most `MAX_UNKNOWN`.
-            self.unknown.iter().position(|n| n == nbt)
+            self.unknown.find(nbt)
         };
         let index = if let Some(index) = found {
             index
         } else {
-            if self.unknown.len() >= MAX_UNKNOWN {
+            if self.unknown.states.len() >= MAX_UNKNOWN {
                 return Err(Error::Full);
             }
             // The list grows in place unless a snapshot or a stored block still shares it.
-            let list = Arc::make_mut(&mut self.unknown);
-            list.push(nbt.clone());
-            list.len().saturating_sub(1)
+            Arc::make_mut(&mut self.unknown).push(nbt.clone())
         };
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
-        )]
-        let index = u32::try_from(index).expect("an unknown state index past u32");
         Ok(Entry::Unknown(index))
     }
 
@@ -466,7 +461,7 @@ impl Chunk {
             sub_chunks,
             biomes,
             heights: Box::new([NO_HEIGHT; COLUMNS]),
-            unknown: Arc::new(unknown),
+            unknown: Arc::new(UnknownStates::new(unknown)),
             dirty,
             split,
             light,
@@ -532,7 +527,7 @@ impl fmt::Debug for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Chunk")
             .field("sub_chunks", &self.sub_chunks.iter().flatten().count())
-            .field("unknown", &self.unknown.len())
+            .field("unknown", &self.unknown.states.len())
             .field("dirty", &self.dirty)
             .field("lit", &self.light.is_some())
             .finish_non_exhaustive()
@@ -569,7 +564,8 @@ impl crate::tick::checkpoint::Codec for Chunk {
         } = self;
         sub_chunks.encode(w);
         biomes.encode(w);
-        w.slice(unknown);
+        // The states alone: their index is worked out again as the chunk reads.
+        w.slice(&unknown.states);
         dirty.encode(w);
         split.encode(w);
         light.encode(w);
@@ -586,6 +582,71 @@ impl crate::tick::checkpoint::Codec for Chunk {
         let split = Codec::decode(r)?;
         let light = Codec::decode(r)?;
         Self::from_kept(sub_chunks, biomes, unknown, dirty, split, light)
+    }
+}
+
+/// The original NBT of a chunk's unknown states with an index that finds a state by its NBT,
+/// kept in one `Arc` so the index always matches the list a stored block or snapshot shares.
+#[derive(Clone, Default)]
+pub(super) struct UnknownStates {
+    /// The states, by [`Entry::unknown_index`]: one per unknown palette entry the chunk was read
+    /// with (a state in several palettes once for each) and each distinct state written here
+    /// once, at most [`MAX_UNKNOWN`].
+    states: Vec<nbt::Compound>,
+    /// The indexes of `states` sorted by state, equal states by index, for a binary search.
+    /// Four bytes a state rather than a map holding a second copy of each: an insert moves at
+    /// most [`MAX_UNKNOWN`] of them, less than the copy `Arc::make_mut` makes of a shared list.
+    order: Vec<u32>,
+}
+
+impl UnknownStates {
+    /// The states in the order of their indexes, with their index worked out (on a chunk's load,
+    /// off the tick). The caller has checked that there are at most [`MAX_UNKNOWN`].
+    fn new(states: Vec<nbt::Compound>) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: callers check the list against MAX_UNKNOWN, far below u32::MAX"
+        )]
+        let len = u32::try_from(states.len()).expect("unknown states fit u32");
+        let mut order: Vec<u32> = (0..len).collect();
+        order.sort_unstable_by(|&a, &b| {
+            unknown_state(&states, a)
+                .cmp(&unknown_state(&states, b))
+                .then(a.cmp(&b))
+        });
+        Self { states, order }
+    }
+
+    /// The lowest index of a state equal to `nbt`, if there is one.
+    fn find(&self, nbt: &nbt::Compound) -> Option<u32> {
+        let at = self
+            .order
+            .partition_point(|&i| unknown_state(&self.states, i) < Some(nbt));
+        self.order
+            .get(at)
+            .copied()
+            .filter(|&i| unknown_state(&self.states, i) == Some(nbt))
+    }
+
+    /// The state at `index`, if there is one.
+    pub(super) fn get(&self, index: usize) -> Option<&nbt::Compound> {
+        self.states.get(index)
+    }
+
+    /// Adds `nbt` at the end, after any equal state, and returns its index. The caller has
+    /// checked that there is room under [`MAX_UNKNOWN`].
+    fn push(&mut self, nbt: nbt::Compound) -> u32 {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: callers check the list against MAX_UNKNOWN, far below u32::MAX"
+        )]
+        let index = u32::try_from(self.states.len()).expect("unknown states fit u32");
+        let at = self
+            .order
+            .partition_point(|&i| unknown_state(&self.states, i) <= Some(&nbt));
+        self.order.insert(at, index);
+        self.states.push(nbt);
+        index
     }
 }
 
@@ -619,6 +680,12 @@ fn unknown_indexes_fit<'a>(
                 })
             })
         })
+}
+
+/// The unknown state at `index` of `states`, which an index of `UnknownStates::order` always
+/// finds.
+fn unknown_state(states: &[nbt::Compound], index: u32) -> Option<&nbt::Compound> {
+    states.get(usize::try_from(index).ok()?)
 }
 
 #[cfg(test)]
@@ -811,7 +878,10 @@ pub(crate) mod tests {
                 nbt::Value::String(format!("minecraft:{name}")),
             )])
         };
-        let foreign = Arc::new(vec![state("first_unknown"), state("second_unknown")]);
+        let foreign = Arc::new(UnknownStates::new(vec![
+            state("first_unknown"),
+            state("second_unknown"),
+        ]));
         let stored = |index| UnknownBlock {
             list: Arc::clone(&foreign),
             index,
@@ -824,6 +894,45 @@ pub(crate) mod tests {
         assert_eq!(Arc::as_ptr(&chunk.unknown), list, "grown in place");
         chunk.unknown_entry(&stored(1)).unwrap();
         assert_eq!(chunk.unknown().len(), 2, "an equal state adds nothing");
+    }
+
+    /// The index finds what a scan of the list would: the first equal state of a list read with
+    /// repeats in any order, a state added later, and a new state at the end.
+    #[test]
+    fn unknown_entry_finds_the_first_equal_state() {
+        let state = |n: usize| {
+            nbt::Compound::from([
+                (
+                    "name".to_owned(),
+                    nbt::Value::String(format!("minecraft:s{}", n % 7)),
+                ),
+                (
+                    "val".to_owned(),
+                    nbt::Value::Long(i64::try_from(n / 7).unwrap()),
+                ),
+            ])
+        };
+        let mut rng = crate::protocol::Rng(23);
+        let read: Vec<nbt::Compound> = (0..60).map(|_| state(rng.below(40))).collect();
+        let biomes = std::array::from_fn(|_| Paletted::uniform(PLAINS));
+        let mut chunk = Chunk::from_parts(Default::default(), biomes, read).unwrap();
+        for _ in 0..300 {
+            let nbt = state(rng.below(80));
+            let foreign = Arc::new(UnknownStates::new(vec![nbt.clone()]));
+            let expected = chunk
+                .unknown()
+                .iter()
+                .position(|n| *n == nbt)
+                .unwrap_or(chunk.unknown().len());
+            let entry = chunk
+                .unknown_entry(&UnknownBlock {
+                    list: foreign,
+                    index: 0,
+                })
+                .unwrap();
+            assert_eq!(entry, Entry::Unknown(u32::try_from(expected).unwrap()));
+            assert_eq!(chunk.unknown().get(expected), Some(&nbt));
+        }
     }
 
     #[test]
