@@ -292,12 +292,7 @@ fn players_walking(n: u64, run: Run) {
     b.join(n);
     let sessions: Vec<_> = b.state.players.keys().copied().collect();
     for (i, s) in (0_u64..).zip(&sessions) {
-        survival::teleport(
-            &mut b.state,
-            *s,
-            0,
-            grid(i, n) + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0),
-        );
+        survival::teleport(&mut b.state, *s, 0, survival::eye_at(grid(i, n)));
     }
     // The teleported views fill up first (4 chunks per tick).
     b.settle(100);
@@ -307,11 +302,7 @@ fn players_walking(n: u64, run: Run) {
             .zip(&sessions)
             .map(|(i, s)| {
                 let feet = grid(i, n) + Vec3::new(WALK * f64::from(t), 0.0, 0.0);
-                walked(
-                    s.get(),
-                    10 + u64::from(t),
-                    feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0),
-                )
+                walked(s.get(), 10 + u64::from(t), survival::eye_at(feet))
             })
             .collect();
         b.tick(inputs);

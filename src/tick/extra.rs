@@ -675,6 +675,9 @@ pub(super) mod tests {
         }
         driver.tick(&mut state, Vec::new());
         let player = state.players.values().next().unwrap();
-        assert_eq!(player.position, crate::math::Vec3::new(0.5, -58.38, 0.5));
+        assert_eq!(
+            player.position,
+            crate::tick::survival::eye_at(crate::math::Vec3::new(0.5, -60.0, 0.5))
+        );
     }
 }

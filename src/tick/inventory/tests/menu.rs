@@ -1272,8 +1272,7 @@ fn close_by(w: &mut World, s: SessionId, way: Way, chest: BlockPos) {
             w.tick(Vec::new());
         }
         Way::Teleport => {
-            let eye = w.player_mut(s).position;
-            let feet = Vec3::new(eye.x, eye.y - survival::EYE_HEIGHT, eye.z);
+            let feet = survival::feet_at(w.player_mut(s).position);
             let id = crate::player::Id::new(s);
             Context {
                 state: &mut w.state,

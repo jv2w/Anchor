@@ -10,7 +10,7 @@ use tracing::debug;
 use super::attributes::{self, ABSORPTION, HEALTH};
 use super::effects::{self, Active};
 use super::{
-    ENTITY_REACH, EYE_HEIGHT, MAX_FIRE_TICKS, PLAYER_HEIGHT, Point, Stay, Survival, broadcast_from,
+    ENTITY_REACH, MAX_FIRE_TICKS, PLAYER_HEIGHT, Point, Stay, Survival, broadcast_from,
     broadcast_to_viewers, can_interact, feet, food, movement, player_random, sound, world_seed,
 };
 use crate::config::{CriticalHits, GameMode};
@@ -60,6 +60,9 @@ const NO_MODIFIERS: Modifiers = [None; DamageModifier::all().len()];
 const PROTECTION: u64 = random::tag("protection");
 /// Ticks a respawned player ignores damage.
 const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
+/// The position the official server sends in the `Respawn` (searching for the spawn) it answers
+/// a client ready to spawn with, before the respawn position (P6).
+const RESPAWN_SEARCH_POSITION: Vec3 = Vec3::new(0.0, 32_767.0, 0.0);
 /// The random stream of respiration rolls.
 const RESPIRATION: u64 = random::tag("respiration");
 /// The random stream of thorns rolls.
@@ -320,6 +323,17 @@ impl Landed {
         self.vertical_limit = event.vertical_knockback_limit;
         self.cooldown = event.attack_cooldown_ticks;
     }
+}
+
+/// What asks for a respawn ([`respawn`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Trigger {
+    /// The client's respawn button: its client was sent the respawn position when it said it
+    /// was ready ([`on_respawn`]).
+    Client,
+    /// [`Player::respawn`](crate::player::Player::respawn): its client, which has not asked, is
+    /// sent the respawn position too.
+    Api,
 }
 
 /// The official damage cause number of `cause`, which the hurt event of a player or an entity
@@ -1589,9 +1603,9 @@ fn replace_drops(stacks: Vec<Stack>, original: &[Stack], mut drops: Vec<Stack>) 
     drops
 }
 
-/// Shows the death screen: the respawn position being searched and the death message (a
-/// translation key with the player's and the attacker's names), or the `screen` text a
-/// [`PlayerDeath`] listener chose.
+/// Shows the death screen: the respawn position being searched, at the place of the death as
+/// the official server sends it (P6), and the death message (a translation key with the
+/// player's and the attacker's names), or the `screen` text a [`PlayerDeath`] listener chose.
 fn show_death(
     state: &mut State,
     session: SessionId,
@@ -1599,7 +1613,6 @@ fn show_death(
     attacker: Option<SessionId>,
     screen: Option<String>,
 ) {
-    let (_, respawn_at) = respawn_point(state, session);
     let (cause, messages) = match screen {
         Some(text) => (text, Vec::new()),
         None => (message.to_owned(), death_names(state, session, attacker)),
@@ -1608,11 +1621,9 @@ fn show_death(
         return;
     };
     player.survival.motion.death_shown = true;
-    let runtime_id = player.runtime_id;
     player.send_packet(respawn_packet(
-        respawn_at,
+        player.position,
         RespawnState::SearchingForSpawn,
-        runtime_id,
     ));
     player.send_packet(Packet::DeathInfo(DeathInfo { cause, messages }));
 }
@@ -1697,23 +1708,28 @@ pub(super) fn retry_held_back(state: &mut State, session: SessionId) {
 }
 
 /// Takes a `Respawn` from the client: on the death screen, the client is ready to spawn and gets
-/// the respawn position. Anything else is ignored.
+/// the search (as the official server sends it, P6) and the respawn position. A player already
+/// back through the API gets where it is: its client may have asked before it heard of that
+/// respawn, and stays dead until it is answered. Anything else is ignored.
 pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn) {
-    let dead = state
-        .players
-        .get(&session)
-        .is_some_and(|p| p.phase == Phase::Spawned && p.survival.is_dead());
-    if !dead || packet.state != u8::from(RespawnState::ClientReadyToSpawn) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.phase != Phase::Spawned || packet.state != u8::from(RespawnState::ClientReadyToSpawn)
+    {
         return;
     }
-    let (_, position) = respawn_point(state, session);
+    let position = if player.survival.is_dead() {
+        respawn_point(state, session).1
+    } else {
+        player.position
+    };
     if let Some(player) = state.players.get_mut(&session) {
-        let runtime_id = player.runtime_id;
         player.send_packet(respawn_packet(
-            position,
-            RespawnState::ReadyToSpawn,
-            runtime_id,
+            RESPAWN_SEARCH_POSITION,
+            RespawnState::SearchingForSpawn,
         ));
+        player.send_packet(respawn_packet(position, RespawnState::ReadyToSpawn));
     }
 }
 
@@ -1722,8 +1738,9 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
 /// world border is ignored); nothing unless it is dead. In hardcore the player comes back as a
 /// spectator, unless a [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener
 /// cancels that. Another world raises [`PlayerWorldChange`](crate::event::PlayerWorldChange)
-/// before the [`PlayerRespawn`] monitors, unless the player is leaving (`stay`).
-pub(super) fn respawn(state: &mut State, session: SessionId, stay: Stay) {
+/// before the [`PlayerRespawn`] monitors, unless the player is leaving (`stay`). The client that
+/// did not ask (`trigger`) gets the respawn position first, without which it stays dead.
+pub(super) fn respawn(state: &mut State, session: SessionId, trigger: Trigger, stay: Stay) {
     // A death the API made runs later in the tick (drops, event, death screen); the respawn waits
     // for it.
     let Some(from) = state
@@ -1737,23 +1754,32 @@ pub(super) fn respawn(state: &mut State, session: SessionId, stay: Stay) {
     let Some((world, position, event)) = revive(state, session, Phase::Spawned) else {
         return;
     };
+    if trigger == Trigger::Api
+        && let Some(player) = state.players.get_mut(&session)
+    {
+        player.send_packet(respawn_packet(position, RespawnState::ReadyToSpawn));
+    }
     super::teleport(state, session, world, position);
     let burning = restore(state, session);
     let Some(player) = state.players.get(&session) else {
         return;
     };
+    // The official server's order (P6): the respawn event, the health, the attributes, then the
+    // entity data.
+    let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let mut out = vec![
+        Packet::SetHealth(packet::SetHealth {
+            health: super::health_shown(player),
+        }),
         attributes::all_attributes(player),
         attributes::update_abilities(player),
     ];
     inventory::spawn_packets(player, &mut out);
     let data = attributes::actor_data(player.runtime_id, attributes::full_metadata(player), 0);
-    let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
     let health = attributes::health_packet(player);
     let now = attributes::shown(player);
-    let seen = [data, alive, size];
-    for packet in seen.iter().chain([&health]) {
+    for packet in [&alive, &data, &size, &health] {
         broadcast_to_viewers(state, session, packet);
     }
     let Some(player) = state.players.get_mut(&session) else {
@@ -1761,7 +1787,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId, stay: Stay) {
     };
     // The player gets its own straight away: it may respawn where its client has no chunks yet
     // (another world, far away), so it does not see itself as a viewer would.
-    for packet in out.into_iter().chain(seen) {
+    for packet in std::iter::once(alive).chain(out).chain([data, size]) {
         player.send_packet(packet);
     }
     // The packets above carry all but the adventure settings, which a listener may have changed.
@@ -1876,12 +1902,12 @@ fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
         .unwrap_or((player.world, player.position))
 }
 
-/// A `Respawn` packet.
-fn respawn_packet(position: Vec3, respawn_state: RespawnState, runtime_id: u64) -> Packet {
+/// A `Respawn` packet, with the runtime ID 0 the official server sends (P6).
+fn respawn_packet(position: Vec3, respawn_state: RespawnState) -> Packet {
     Packet::Respawn(Respawn {
         position: position.to_f32(),
         state: u8::from(respawn_state),
-        entity_runtime_id: runtime_id,
+        entity_runtime_id: 0,
     })
 }
 
@@ -1927,7 +1953,7 @@ fn hardcore_spectator(state: &mut State, session: SessionId) {
 /// Where a [`PlayerRespawn`] listener sends the player: the world's index and the eye position;
 /// `None` for a world the server does not run (or unloaded) or a place outside the world border.
 fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
-    let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let eye = super::eye_at(feet);
     super::check_destination(state, world.index(), eye)
         .is_ok()
         .then_some((world.index(), eye))

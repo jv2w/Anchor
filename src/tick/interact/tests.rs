@@ -20,7 +20,7 @@ use crate::protocol::packet::{ContainerClose, SetLocalPlayerAsInitialised};
 use crate::protocol::{FlagSet, InputFlags, NormalTransactionData, ReleaseItemTransactionData};
 use crate::save::palette_entry;
 use crate::tick::queue::{Input, InputKind, Message, Outbound};
-use crate::tick::survival::EYE_HEIGHT;
+use crate::tick::survival;
 use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
 use crate::tick::{InputLog, Output, boundary, deliver, step};
 use crate::world::Entry;
@@ -130,8 +130,7 @@ impl Harness {
         if item.is_some() {
             flags.insert(InputFlag::PerformItemInteraction);
         }
-        let eye = [FEET[0], FEET[1] + EYE_HEIGHT, FEET[2]];
-        let position = eye.map(crate::math::to_f32);
+        let position = survival::eye_at(Vec3::new(FEET[0], FEET[1], FEET[2])).to_f32();
         let p = PlayerAuthInput {
             yaw: self.yaw,
             position,

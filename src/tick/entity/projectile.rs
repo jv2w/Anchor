@@ -25,9 +25,9 @@ use super::SessionId;
 use super::kind::{Arrow, Cloud, Kind, Projectile, Shot, Trident, Victim};
 use super::physics::{Body, Flight, intercept};
 use super::{
-    Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
-    create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
-    player_actor, push_entity, send_to, with, worn,
+    Blow, Cause, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust, create,
+    direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event, player_actor,
+    push_entity, send_to, with, worn,
 };
 use crate::block;
 use crate::config::GameMode;
@@ -915,7 +915,7 @@ fn pearl(state: &mut State, world: WorldIndex, at: Vec3, owner: Option<SessionId
         to = e.target;
         event = Some(e);
     }
-    let eye = to + Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let eye = survival::eye_at(to);
     if survival::check_destination(state, to_world, eye).is_err() {
         return;
     }
@@ -2089,7 +2089,11 @@ mod tests {
         assert_eq!(teleports.len(), 1);
         let (who, world, eye) = teleports[0];
         assert_eq!((who, world), (1, 0));
-        assert_eq!(eye.y, -60.0 + EYE_HEIGHT, "on the ground it hit");
+        assert_eq!(
+            eye.y,
+            survival::eye_at(Vec3::new(0.0, -60.0, 0.0)).y,
+            "on the ground it hit"
+        );
         assert!(eye.z > 2.0, "forward: {eye:?}");
         assert_eq!(
             calls(|c| c.damage.clone()),

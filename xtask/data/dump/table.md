@@ -4470,7 +4470,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::close` | implemented | src/tick/entity/api.rs:85 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::despawnFrom` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::despawnFromAll` | skipped |  |  | viewers follow the chunks each player sees |
-| `entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:410 `set_fire_ticks`<br>src/tick/survival/api.rs:1019 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:410 `set_fire_ticks`<br>src/tick/survival/api.rs:1020 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
@@ -4512,49 +4512,49 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::isClosed` | skipped |  |  | a removed entity's Id finds nothing (`Context::entity` is `None`) |
 | `entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:1256 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::isFlaggedForDespawn` | skipped |  |  | a flagged entity is gone from the API at once: `Context::entity` is `None` |
-| `entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1515 `is_player_inside_solid` | src/tick/entity/custom/tests.rs::a_custom_entity_suffocates_with_its_eyes_in_a_solid_block<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_suffocates_at_its_scaled_eyes<br>src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1516 `is_player_inside_solid` | src/tick/entity/custom/tests.rs::a_custom_entity_suffocates_with_its_eyes_in_a_solid_block<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_suffocates_at_its_scaled_eyes<br>src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:1262 `is_invisible`<br>src/tick/survival/api.rs:494 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:1287 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:1293 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:1299 `is_on_fire`<br>src/tick/survival/api.rs:504 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:1305 `is_on_ground`<br>src/tick/survival/api.rs:510 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:522 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1524 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `entity\Entity::kill` | implemented | src/tick/entity/api.rs:127 `kill`<br>src/tick/survival/api.rs:1156 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
+| `entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1525 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Entity::kill` | implemented | src/tick/entity/api.rs:127 `kill`<br>src/tick/survival/api.rs:1157 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `entity\Entity::nextRuntimeId` | skipped |  |  | runtime IDs are assigned by the engine |
 | `entity\Entity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\Entity::onInteract` | implemented | src/entity/custom.rs:37 `on_interact` | src/tick/entity/custom/tests.rs::behaviors_tick_every_period_in_id_order_and_answer_interactions |  |
 | `entity\Entity::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\Entity::onRandomUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::onUpdate` | implemented | src/entity/custom.rs:31 `on_tick` | src/tick/entity/custom/tests.rs::behaviors_tick_every_period_in_id_order_and_answer_interactions |  |
-| `entity\Entity::resetFallDistance` | implemented | src/tick/survival/api.rs:1111 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::resetFallDistance` | implemented | src/tick/survival/api.rs:1112 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::respawnToAll` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\Entity::scheduleUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
-| `entity\Entity::setCanClimb` | implemented | src/tick/survival/api.rs:924 `set_can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `entity\Entity::setCanClimbWalls` | implemented | src/tick/survival/api.rs:931 `set_can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `entity\Entity::setCanClimb` | implemented | src/tick/survival/api.rs:925 `set_can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `entity\Entity::setCanClimbWalls` | implemented | src/tick/survival/api.rs:932 `set_can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `entity\Entity::setCanSaveWithChunk` | implemented | src/tick/entity/api.rs:263 `set_can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
-| `entity\Entity::setFallDistance` | implemented | src/tick/survival/api.rs:1005 `set_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::setFireTicks` | implemented | src/tick/entity/api.rs:409 `set_fire_ticks`<br>src/tick/survival/api.rs:1018 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::setFallDistance` | implemented | src/tick/survival/api.rs:1006 `set_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::setFireTicks` | implemented | src/tick/entity/api.rs:409 `set_fire_ticks`<br>src/tick/survival/api.rs:1019 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::setForceMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::setGravity` | skipped |  |  | an entity kind's physics are the API table's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off |
 | `entity\Entity::setHasGravity` | implemented | src/tick/entity/api.rs:465 `set_has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::setHealth` | implemented | src/tick/entity/api.rs:105 `set_health`<br>src/tick/survival/api.rs:1133 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/entity/saved.rs::an_npc_saved_without_health_loads_dying<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:473 `set_invisible`<br>src/tick/survival/api.rs:1171 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1179 `set_last_damage_cause` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
-| `entity\Entity::setMaxHealth` | implemented | src/tick/survival/api.rs:1231 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::setHealth` | implemented | src/tick/entity/api.rs:105 `set_health`<br>src/tick/survival/api.rs:1134 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/entity/saved.rs::an_npc_saved_without_health_loads_dying<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:473 `set_invisible`<br>src/tick/survival/api.rs:1172 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1180 `set_last_damage_cause` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
+| `entity\Entity::setMaxHealth` | implemented | src/tick/survival/api.rs:1232 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::setMotion` | implemented | src/tick/entity/api.rs:566 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
-| `entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:584 `set_name_tag`<br>src/tick/survival/api.rs:1287 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:584 `set_name_tag`<br>src/tick/survival/api.rs:1288 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::setNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:595 `set_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:601 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1298 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:608 `set_on_fire`<br>src/tick/survival/api.rs:1306 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1299 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:608 `set_on_fire`<br>src/tick/survival/api.rs:1307 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:645 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:747 `set_rotation`<br>src/tick/survival/api.rs:1321 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/survival/api.rs::a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick |  |
+| `entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:747 `set_rotation`<br>src/tick/survival/api.rs:1322 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/survival/api.rs::a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick |  |
 | `entity\Entity::setScale` | implemented | src/tick/entity/api.rs:765 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1354 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1365 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1355 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1366 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are the API table's constants per kind: `Entity::step_height` reads them |
 | `entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
@@ -4591,14 +4591,14 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\ExperienceManager::getXpProgress` | implemented | src/tick/survival/api.rs:668 `xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::onPickupXp` | skipped |  |  | xp rule code: listeners see PlayerXpChange |
 | `entity\ExperienceManager::resetXpCooldown` | skipped |  |  | xp rule code |
-| `entity\ExperienceManager::setCanAttractXpOrbs` | implemented | src/tick/survival/api.rs:918 `set_can_attract_xp_orbs` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
-| `entity\ExperienceManager::setCurrentTotalXp` | implemented | src/tick/survival/api.rs:955 `set_current_total_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::setLifetimeTotalXp` | implemented | src/tick/survival/api.rs:1190 `set_lifetime_total_xp` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
-| `entity\ExperienceManager::setXpAndProgress` | merged | src/tick/survival/api.rs:1438 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::setXpLevel` |
-| `entity\ExperienceManager::setXpLevel` | implemented | src/tick/survival/api.rs:1438 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::setXpProgress` | implemented | src/tick/survival/api.rs:1458 `set_xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::subtractXp` | implemented | src/tick/survival/api.rs:1476 `subtract_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::subtractXpLevels` | implemented | src/tick/survival/api.rs:1492 `subtract_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::setCanAttractXpOrbs` | implemented | src/tick/survival/api.rs:919 `set_can_attract_xp_orbs` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
+| `entity\ExperienceManager::setCurrentTotalXp` | implemented | src/tick/survival/api.rs:956 `set_current_total_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::setLifetimeTotalXp` | implemented | src/tick/survival/api.rs:1191 `set_lifetime_total_xp` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
+| `entity\ExperienceManager::setXpAndProgress` | merged | src/tick/survival/api.rs:1439 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::setXpLevel` |
+| `entity\ExperienceManager::setXpLevel` | implemented | src/tick/survival/api.rs:1439 `set_xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::setXpProgress` | implemented | src/tick/survival/api.rs:1459 `set_xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::subtractXp` | implemented | src/tick/survival/api.rs:1477 `subtract_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
+| `entity\ExperienceManager::subtractXpLevels` | implemented | src/tick/survival/api.rs:1493 `subtract_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::tick` | skipped |  |  | xp rule code |
 | `entity\Explosive` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\Explosive::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:159 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
@@ -4632,7 +4632,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Human::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\Human::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
 | `entity\Human::setEnchantmentSeed` | skipped |  |  | the enchanting table is removed: there is no enchantment seed |
-| `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1380 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1381 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\HungerManager` | merged | src/tick/survival/api.rs:391 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\HungerManager::__construct` | skipped |  |  | every player has its food |
@@ -4646,11 +4646,11 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\HungerManager::getSaturation` | implemented | src/tick/survival/api.rs:637 `saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::isEnabled` | implemented | src/tick/survival/api.rs:475 `is_food_enabled` | src/tick/survival/api.rs::food_turned_off_for_one_player_spends_nothing |  |
 | `entity\HungerManager::isHungry` | implemented | src/tick/survival/api.rs:488 `is_hungry` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
-| `entity\HungerManager::setEnabled` | implemented | src/tick/survival/api.rs:1066 `set_food_enabled` | src/tick/survival/api.rs::food_turned_off_for_one_player_spends_nothing |  |
-| `entity\HungerManager::setExhaustion` | implemented | src/tick/survival/api.rs:988 `set_exhaustion` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
-| `entity\HungerManager::setFood` | implemented | src/tick/survival/api.rs:1054 `set_food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
+| `entity\HungerManager::setEnabled` | implemented | src/tick/survival/api.rs:1067 `set_food_enabled` | src/tick/survival/api.rs::food_turned_off_for_one_player_spends_nothing |  |
+| `entity\HungerManager::setExhaustion` | implemented | src/tick/survival/api.rs:989 `set_exhaustion` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
+| `entity\HungerManager::setFood` | implemented | src/tick/survival/api.rs:1055 `set_food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::setFoodTickTimer` | skipped |  |  | food rule code |
-| `entity\HungerManager::setSaturation` | implemented | src/tick/survival/api.rs:1338 `set_saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
+| `entity\HungerManager::setSaturation` | implemented | src/tick/survival/api.rs:1339 `set_saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::tick` | skipped |  |  | food rule code |
 | `entity\InvalidSkinException` | merged | src/entity/skin.rs:63 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names | into `Skin::__construct` |
 | `entity\Living` | merged | src/tick/survival/api.rs:357 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `Living::getEffects` |
@@ -4670,13 +4670,13 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::getFrostWalkerLevel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `entity\Living::getHighestArmorEnchantmentLevel` | skipped |  |  | damage rule code |
 | `entity\Living::getJumpVelocity` | skipped |  |  | movement rule code |
-| `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1553 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1554 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:591 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:1336 `max_health`<br>src/tick/survival/api.rs:599 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:606 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Living::getName` | merged | src/tick/player.rs:394 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1569 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1570 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:457 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Living::isGliding` | implemented | src/tick/survival/api.rs:481 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
@@ -4688,18 +4688,18 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::lookAt` | implemented | src/tick/entity/api.rs:166 `look_at` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
 | `entity\Living::onAirExpired` | skipped |  |  | damage rule code |
 | `entity\Living::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\Living::setAbsorption` | implemented | src/tick/survival/api.rs:851 `set_absorption` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Living::setAirSupplyTicks` | implemented | src/tick/survival/api.rs:869 `set_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `entity\Living::setBreathing` | implemented | src/tick/survival/api.rs:909 `set_breathing` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `entity\Living::setGliding` | implemented | src/tick/survival/api.rs:1120 `set_gliding` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setHealth` | implemented | src/tick/entity/api.rs:106 `set_health`<br>src/tick/survival/api.rs:1134 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Living::setMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:1208 `set_max_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `entity\Living::setMaxHealth` | implemented | src/tick/survival/api.rs:1232 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Living::setMovementSpeed` | implemented | src/tick/survival/api.rs:1273 `set_movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:609 `set_on_fire`<br>src/tick/survival/api.rs:1307 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1396 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1418 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1425 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setAbsorption` | implemented | src/tick/survival/api.rs:852 `set_absorption` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Living::setAirSupplyTicks` | implemented | src/tick/survival/api.rs:870 `set_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `entity\Living::setBreathing` | implemented | src/tick/survival/api.rs:910 `set_breathing` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `entity\Living::setGliding` | implemented | src/tick/survival/api.rs:1121 `set_gliding` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setHealth` | implemented | src/tick/entity/api.rs:106 `set_health`<br>src/tick/survival/api.rs:1135 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Living::setMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:1209 `set_max_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `entity\Living::setMaxHealth` | implemented | src/tick/survival/api.rs:1233 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Living::setMovementSpeed` | implemented | src/tick/survival/api.rs:1274 `set_movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:609 `set_on_fire`<br>src/tick/survival/api.rs:1308 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1397 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1419 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1426 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Location` | merged | src/tick/entity/api.rs:1579 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
 | `entity\Location::__construct` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -8274,7 +8274,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1584 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
+| `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1585 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:22 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
 | `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4262 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:45 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
@@ -8289,7 +8289,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::canInteract` | implemented | src/tick/survival/api.rs:313 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `player\Player::canSee` | implemented | src/tick/entity/api.rs:1613 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `player\Player::changeSkin` | merged | src/tick/survival/api.rs:1380 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
+| `player\Player::changeSkin` | merged | src/tick/survival/api.rs:1381 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
 | `player\Player::chat` | implemented | src/action/survival.rs:14 `Chat` | src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `player\Player::closeAllForms` | implemented | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
@@ -8297,7 +8297,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::disconnect` | implemented | src/tick/player.rs:594 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
-| `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1598 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1599 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `player\Player::emote` | skipped |  |  | player rule code: listeners see PlayerEmote |
 | `player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:305 `can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getCraftingGrid` | skipped |  |  | crafting is removed: there is no crafting grid |
@@ -8312,8 +8312,8 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:385 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:559 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:439 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1533 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1540 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1534 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1541 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `player\Player::getLastPlayed` | differs | src/tick/player.rs:380 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
 | `player\Player::getLeaveMessage` | merged | src/event/player.rs:1331 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
@@ -8336,7 +8336,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:397 `has_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:403 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:415 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
-| `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1508 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1509 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::hasPermission` | implemented | src/tick/command.rs:660 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:335 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
@@ -8376,10 +8376,10 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::removeAttachment` | merged | src/tick/command.rs:1148 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:199 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::removeTitles` | implemented | src/tick/player.rs:625 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1112 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1620 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1113 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1621 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::resetTitles` | implemented | src/tick/player.rs:626 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::respawn` | implemented | src/tick/survival/api.rs:836 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
+| `player\Player::respawn` | implemented | src/tick/survival/api.rs:837 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `player\Player::save` | skipped |  |  | player records commit with the world |
 | `player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:89 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
 | `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:622 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
@@ -8393,22 +8393,22 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::sendTip` | implemented | src/tick/player.rs:619 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendTitle` | implemented | src/tick/player.rs:623 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendToastNotification` | implemented | src/tick/player.rs:628 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:939 `set_can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:884 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:940 `set_can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:885 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setBasePermission` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:221 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:214 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
-| `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:973 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:974 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::setDisplayName` | implemented | src/tick/player.rs:642 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
-| `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1037 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1100 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setGamemode` | implemented | src/action/survival.rs:153 `SetGameMode`<br>src/tick/survival/api.rs:1076 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
-| `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:895 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1256 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1038 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1101 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `player\Player::setGamemode` | implemented | src/action/survival.rs:153 `SetGameMode`<br>src/tick/survival/api.rs:1077 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
+| `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:896 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1257 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:655 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
-| `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1409 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1410 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::setTitleDuration` | implemented | src/tick/player.rs:627 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:424 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |

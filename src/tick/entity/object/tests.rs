@@ -595,7 +595,7 @@ fn a_trident_throw_sounds_at_the_middle_of_the_body() {
     hold(&mut h, stack("minecraft:trident", 1));
     h.take(1);
     throw_trident(&mut h, 20);
-    let feet = h.state.players[&session(1)].position.y - 1.62;
+    let feet = survival::feet_at(h.state.players[&session(1)].position).y;
     let throw = h.take(1).into_iter().find_map(|p| match p {
         Packet::LevelSoundEvent(s) if s.sound_type == "item.trident.throw" => Some(s.position),
         _ => None,
@@ -649,7 +649,7 @@ fn a_thrown_trident_hits_sticks_and_comes_back_once() {
         carried(h, item::Kind::Trident) + of_type(h, crate::entity::Type::Trident).len() as u64
     };
     assert_eq!(total(&h), 1);
-    h.teleport(1, (landed + Vec3::new(0.0, 1.62, 0.0)).to_f32());
+    h.teleport(1, survival::eye_at(landed).to_f32());
     h.step(Vec::new());
     assert!(
         h.state.rules.entities.get(id).is_none_or(|e| e.flagged),
@@ -704,7 +704,7 @@ fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
     }
     let landed = entity(&h, id).body.position;
     hold(&mut h, Stack::EMPTY);
-    h.teleport(1, (landed + Vec3::new(0.0, 1.62, 0.0)).to_f32());
+    h.teleport(1, survival::eye_at(landed).to_f32());
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(id).is_none_or(|e| e.flagged));
     assert_eq!(
@@ -968,7 +968,7 @@ fn a_tridents_launch_and_pickup_ask_their_listeners() {
         h.step(Vec::new());
     }
     let landed = entity(&h, id).body.position;
-    h.teleport(1, (landed + Vec3::new(0.0, 1.62, 0.0)).to_f32());
+    h.teleport(1, survival::eye_at(landed).to_f32());
     h.step(Vec::new());
     assert!(
         h.state.rules.entities.get(id).is_some_and(|e| !e.flagged),

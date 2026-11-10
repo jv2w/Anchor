@@ -20,7 +20,7 @@ use super::command::{self, Refusal};
 use super::hook::{self, StartHook};
 use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches, SharedPacket};
 use super::save::storage_key;
-use super::survival::EYE_HEIGHT;
+use super::survival::EYE_OFFSET;
 use super::view::{self, Changes, Encoded};
 use super::{Output, Phase, Player, PlayerKey, Settings, State, inside_border};
 use super::{checkpoint, dispatch, extra, interact, inventory, survival};
@@ -735,7 +735,7 @@ fn spawn_window(
     out.push(packet(commands));
     let eye = player.position;
     for (y, state) in [
-        (RESPAWN_SEARCH_Y + EYE_HEIGHT, 0),
+        (RESPAWN_SEARCH_Y + EYE_OFFSET, 0),
         (RESPAWN_SEARCH_Y, 0),
         (eye.y, 1),
     ] {

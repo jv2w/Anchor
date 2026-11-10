@@ -7,7 +7,7 @@
 //! checks are safety checks, not an anti-cheat.
 
 use super::attributes::{ABILITIES, MOVEMENT};
-use super::damage::{self, Damage};
+use super::damage::{self, Damage, Trigger};
 use super::effects::{self, Active};
 use super::{Stay, Survival, attributes, feet, food, sound};
 use crate::block::{self, Class};
@@ -347,7 +347,7 @@ pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &P
         return;
     };
     if action == Action::Respawn {
-        damage::respawn(state, session, Stay::Online);
+        damage::respawn(state, session, Trigger::Client, Stay::Online);
         return;
     }
     let Some(player) = state.players.get(&session) else {
@@ -836,7 +836,7 @@ pub(super) fn process(state: &mut State, session: SessionId) {
         let world = player.world;
         let send_back = move |state: &mut State| {
             if let Some(player) = state.players.get_mut(&session) {
-                player.position = from + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+                player.position = super::eye_at(from);
                 player.data_dirty = true;
                 send_position(player, MoveMode::Reset);
             }
@@ -862,7 +862,7 @@ pub(super) fn process(state: &mut State, session: SessionId) {
         if let Some(e) = &event
             && e.target.distance_squared(now) > MIN_RETARGET_SQUARED
         {
-            let eye = e.target + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+            let eye = super::eye_at(e.target);
             if super::check_destination(state, world, eye).is_err() {
                 send_back(state);
                 return;
@@ -1053,7 +1053,7 @@ mod tests {
         state.worlds[0]
             .set_block(BlockPos::new(0, -60, 0), water)
             .unwrap();
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| crate::tick::survival::eye_at(Vec3::new(0.5, feet_y, 0.5));
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.position = eye(-45.0);
         player.survival.motion.processed = Some(Vec3::new(0.5, -45.0, 0.5));
@@ -1080,7 +1080,7 @@ mod tests {
         state.worlds[0].set_block(pos, level(6)).unwrap();
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
+        player.position = crate::tick::survival::eye_at(Vec3::new(0.5, -60.0, 0.5));
         player.survival.fire_ticks = 100;
         crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(state.players[&session].survival.fire_ticks, 0);
@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn a_player_without_block_collision_never_lands() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| crate::tick::survival::eye_at(Vec3::new(0.5, feet_y, 0.5));
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.set_block_collision(false);
         player.position = eye(-50.0);
@@ -1109,7 +1109,7 @@ mod tests {
     #[test]
     fn a_fall_without_block_collision_does_not_hurt_once_collision_is_back() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| crate::tick::survival::eye_at(Vec3::new(0.5, feet_y, 0.5));
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
         player.set_block_collision(false);
@@ -1158,7 +1158,7 @@ mod tests {
         state.worlds[0]
             .set_block(BlockPos::new(0, -61, 0), ground)
             .unwrap();
-        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + crate::tick::survival::EYE_HEIGHT, 0.5);
+        let eye = |feet_y: f64| crate::tick::survival::eye_at(Vec3::new(0.5, feet_y, 0.5));
         let player = state.players.get_mut(&SessionId::new(1)).unwrap();
         player.position = eye(-58.0);
         player.survival.motion.processed = Some(Vec3::new(0.5, -58.0, 0.5));
@@ -1232,7 +1232,7 @@ mod tests {
             .unwrap();
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
+        player.position = crate::tick::survival::eye_at(Vec3::new(0.5, -60.0, 0.5));
         player.survival.motion.on_ground = false;
         for _ in 0..3 {
             crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
@@ -1271,7 +1271,7 @@ mod tests {
 
     /// Session 1 walks to the feet position `x, -60, z`.
     fn walk(state: &mut State, output: &mut crate::tick::Output, x: f64, z: f64) {
-        let eye = Vec3::new(x, -60.0 + crate::tick::survival::EYE_HEIGHT, z).to_f32();
+        let eye = crate::tick::survival::eye_at(Vec3::new(x, -60.0, z)).to_f32();
         let input = crate::tick::tests::moved_to(1, 10, eye);
         crate::tick::tests::tick(state, &mut vec![input], output);
     }

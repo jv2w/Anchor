@@ -72,7 +72,7 @@ impl Client {
         player: &Player,
         villagers: &BTreeSet<u64>,
     ) -> Vec<Packet> {
-        let feet = player.position - Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let feet = survival::feet_at(player.position);
         let at = BlockPos::containing(feet);
         match rng.below(18) {
             0..=2 => {

@@ -57,8 +57,13 @@ use crate::world::{BlockPos, Weather, World};
 const DEFAULT_SATURATION: f64 = 5.0;
 /// How far a player reaches an entity or a player.
 pub(super) const ENTITY_REACH: f64 = 8.0;
-/// Eye height above the feet; a human NPC's too.
+/// The body's eye height above the feet, for the rules that aim at a player and a human NPC's
+/// eyes; a player's eye position lies [`EYE_OFFSET`] above its feet.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
+/// How far above its feet the eye position of a player lies, in what its client sends and is
+/// sent: a hair over [`EYE_HEIGHT`], as the official server sends it (P6), so the `f32` eyes of
+/// a player on a block put its client's feet on the block, not a hair inside it.
+pub(super) const EYE_OFFSET: f64 = 1.62001;
 /// Air supply in ticks.
 const MAX_AIR_TICKS: i16 = 300;
 /// The largest exhaustion: the official server's `minecraft:player.exhaustion` maximum (P6).
@@ -874,21 +879,27 @@ pub(super) fn feet(player: &Player) -> Vec3 {
 
 /// The feet position of a player whose eyes are at `eye`, rounded to 4 decimals: the one rule
 /// every feet position the tick and the API use follows. Unrounded, the `f32` eye of a player on
-/// a block is a hair below it and its feet floor to the block under that.
+/// a block is a hair off and its feet may floor to the block under it.
 pub(super) fn feet_at(eye: Vec3) -> Vec3 {
     let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
-    let f = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let f = eye - Vec3::new(0.0, EYE_OFFSET, 0.0);
     Vec3::new(round(f.x), round(f.y), round(f.z))
+}
+
+/// The eye position of a player whose feet are at `feet`: the one rule every eye position the
+/// tick makes follows, the inverse of [`feet_at`].
+pub(super) fn eye_at(feet: Vec3) -> Vec3 {
+    feet + Vec3::new(0.0, EYE_OFFSET, 0.0)
 }
 
 /// The eye position of a player standing at `feet`, in the middle of the block: where a player
 /// joins, respawns, or is sent when its world unloads.
 pub(super) fn standing_eye(feet: BlockPos) -> Vec3 {
-    Vec3::new(
+    eye_at(Vec3::new(
         f64::from(feet.x) + 0.5,
-        f64::from(feet.y) + EYE_HEIGHT,
+        f64::from(feet.y),
         f64::from(feet.z) + 0.5,
-    )
+    ))
 }
 
 /// The player's box: its pose's size around its feet; the one box the survival and the entity
@@ -1390,6 +1401,17 @@ mod tests {
         bytes.len()
     }
 
+    /// The `Respawn` packets among `packets`: position, state and runtime ID.
+    fn respawns(packets: &[Packet]) -> Vec<([f32; 3], u8, u64)> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::Respawn(r) => Some((r.position, r.state, r.entity_runtime_id)),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn the_spawn_window_has_the_official_player_state() {
         let packets = window();
@@ -1409,19 +1431,12 @@ mod tests {
         assert_eq!(value("minecraft:player.saturation"), Some(5.0));
         assert_eq!(value("minecraft:health"), Some(20.0));
         assert_eq!(value("minecraft:movement"), Some(0.1));
-        let respawns: Vec<_> = picked(&packets, |p| match p {
-            Packet::Respawn(x) => Some(x),
-            _ => None,
-        })
-        .into_iter()
-        .map(|r| (r.position, r.state, r.entity_runtime_id))
-        .collect();
         assert_eq!(
-            respawns,
+            respawns(&packets),
             [
                 ([0.5, 32_769.62, 0.5], 0, 0),
                 ([0.5, 32_768.0, 0.5], 0, 0),
-                ([0.5, -58.38, 0.5], 1, 0),
+                ([0.5, -58.37999, 0.5], 1, 0),
             ]
         );
         let data = picked(&packets, |p| match p {
@@ -2534,10 +2549,20 @@ mod tests {
         assert_eq!(left, full);
     }
 
+    /// Where the first packet of `packets` that is `found` stands.
+    fn first(packets: &[Packet], found: fn(&Packet) -> bool) -> usize {
+        packets.iter().position(found).unwrap()
+    }
+
+    /// Death and respawn send what the official server sends (P6 `others`): the search at the
+    /// place of the death, the search sentinel and the respawn position to the client ready to
+    /// spawn, then the respawn event, the health and the attributes.
     #[test]
     fn death_and_respawn_follow_their_sequence() {
         let mut server = Server::new(1, |_| {});
         add_xp(server.player_mut(1), 100);
+        let died_at = eye_at(Vec3::new(5.5, -60.0, 5.5));
+        server.player_mut(1).position = died_at;
         server.idle(1);
         server.take(1);
         assert!(server.hurt(1, 100.0, Damage::Magic));
@@ -2545,13 +2570,7 @@ mod tests {
         assert_eq!(server.survival_mut(1).xp_level, 0);
         server.idle(1);
         let death = server.take(1);
-        let searching = death.iter().any(|p| {
-            matches!(
-                p,
-                Packet::Respawn(r) if r.state == u8::from(RespawnState::SearchingForSpawn)
-            )
-        });
-        assert!(searching);
+        assert_eq!(respawns(&death), [(died_at.to_f32(), 0, 0)]);
         assert!(
             death
                 .iter()
@@ -2567,10 +2586,10 @@ mod tests {
         let input = server.send(1, Packet::Respawn(ready));
         server.run(vec![input]);
         let answer = server.take(1);
-        assert!(answer.iter().any(|p| matches!(
-            p,
-            Packet::Respawn(r) if r.state == u8::from(RespawnState::ReadyToSpawn) && r.entity_runtime_id == 1
-        )));
+        assert_eq!(
+            respawns(&answer),
+            [([0.0, 32_767.0, 0.0], 0, 0), ([0.5, -58.37999, 0.5], 1, 0)]
+        );
         let action = p::PlayerAction {
             entity_runtime_id: 1,
             action_type: i32::from(Action::Respawn),
@@ -2594,10 +2613,49 @@ mod tests {
         ] {
             assert!(kinds.contains(&want), "{want} in {kinds:?}");
         }
-        assert!(back.iter().any(|p| matches!(
-            p,
-            Packet::ActorEvent(e) if e.event_type == u8::from(ActorEvent::SpawnAlive)
-        )));
+        assert!(respawns(&back).is_empty(), "the client asked");
+        let alive = first(
+            &back,
+            |p| matches!(p, Packet::ActorEvent(e) if e.event_type == u8::from(ActorEvent::SpawnAlive)),
+        );
+        let health = first(
+            &back,
+            |p| matches!(p, Packet::SetHealth(h) if h.health == 20),
+        );
+        let attributes = first(&back, |p| matches!(p, Packet::UpdateAttributes(_)));
+        assert!(alive < health && health < attributes, "{kinds:?}");
+    }
+
+    /// A respawn through the API sends the client, which has not asked, the respawn position
+    /// before the rest, and a client that then asks anyway is answered: without the answer it
+    /// stays dead on its screen at the respawn point.
+    #[test]
+    fn a_respawn_through_the_api_tells_the_client_where_it_respawns() {
+        let mut server = Server::new(1, |_| {});
+        server.player_mut(1).position = eye_at(Vec3::new(5.5, -60.0, 5.5));
+        assert!(server.hurt(1, 100.0, Damage::Magic));
+        server.idle(1);
+        server.take(1);
+        assert!(server.player_mut(1).respawn());
+        server.idle(1);
+        let back = server.take(1);
+        let spawn_eye = [0.5, -58.37999, 0.5];
+        assert_eq!(respawns(&back), [(spawn_eye, 1, 0)]);
+        let ready_at = first(&back, |p| matches!(p, Packet::Respawn(_)));
+        assert!(ready_at < first(&back, |p| matches!(p, Packet::MovePlayer(_))));
+        assert!(ready_at < first(&back, |p| matches!(p, Packet::SetHealth(_))));
+        assert!(!server.survival_mut(1).is_dead());
+        let ready = p::Respawn {
+            position: [0.0; 3],
+            state: u8::from(RespawnState::ClientReadyToSpawn),
+            entity_runtime_id: 1,
+        };
+        let input = server.send(1, Packet::Respawn(ready));
+        server.run(vec![input]);
+        assert_eq!(
+            respawns(&server.take(1)),
+            [([0.0, 32_767.0, 0.0], 0, 0), (spawn_eye, 1, 0)]
+        );
     }
 
     /// A player that dies leaves the others' locator bar until it respawns, as the official
@@ -2628,7 +2686,12 @@ mod tests {
                 .any(|p| matches!(p, Packet::PlayerLocation(l) if l.r#type == 1))
         );
         assert_eq!(waypoints(&seen), [(3, 2, Some(false))]);
-        damage::respawn(&mut server.state, sid(2), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(2),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         server.idle(1);
         assert_eq!(waypoints(&server.take(1)), [(3, 2, Some(true))]);
     }
@@ -2652,7 +2715,12 @@ mod tests {
         );
         assert!(server.hurt(2, 100.0, Damage::Magic));
         server.idle(1);
-        damage::respawn(&mut server.state, sid(2), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(2),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         server.idle(1);
         server.run(vec![leave(2, 99)]);
         server.idle(1);
@@ -2821,7 +2889,12 @@ mod tests {
             c.general.difficulty = Difficulty::Hard;
         });
         server.hurt(1, 100.0, Damage::Magic);
-        damage::respawn(&mut server.state, sid(1), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(1),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         assert_eq!(server.player(1).game_mode(), GameMode::Spectator);
         assert!(!server.hurt(1, 5.0, Damage::Magic));
     }
@@ -2837,7 +2910,12 @@ mod tests {
         server.player_mut(1).set_can_fly(false);
         server.player_mut(1).set_block_collision(true);
         server.hurt(1, 100.0, Damage::Magic);
-        damage::respawn(&mut server.state, sid(1), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(1),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         let player = server.player(1);
         assert_eq!(player.game_mode(), GameMode::Spectator);
         assert!(player.can_fly());
@@ -3784,10 +3862,15 @@ mod tests {
             pos: BlockPos::new(2, -60, 2),
         });
         assert!(server.hurt(1, 100.0, Damage::Magic));
-        damage::respawn(&mut server.state, sid(1), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(1),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         let p = server.player(1);
         assert_eq!(p.world, 1);
-        assert_eq!(p.position, Vec3::new(2.5, -60.0 + EYE_HEIGHT, 2.5));
+        assert_eq!(p.position, eye_at(Vec3::new(2.5, -60.0, 2.5)));
         assert!(!p.survival.is_dead());
         // A spawn point in a world the server does not run: the default world's spawn.
         server.survival_mut(1).spawn = Some(Point {
@@ -3796,7 +3879,12 @@ mod tests {
         });
         server.idle(80);
         assert!(server.hurt(1, 100.0, Damage::Magic));
-        damage::respawn(&mut server.state, sid(1), Stay::Online);
+        damage::respawn(
+            &mut server.state,
+            sid(1),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         assert_eq!(server.player(1).world, 0);
         let home = server.state.worlds[0].spawn();
         assert_eq!(server.player(1).position.x, f64::from(home.x) + 0.5);

@@ -735,7 +735,12 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
         c.general.difficulty = Difficulty::Hard;
     });
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     assert_eq!(game.player(1).position(), target);
     assert_eq!(game.player(1).game_mode(), GameMode::Survival);
     // A world the server does not run is ignored.
@@ -745,7 +750,12 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     let mut game = Game::new(1, listeners);
     let spawn = game.player(1).position;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     assert_eq!(game.player(1).position, spawn);
 }
 
@@ -759,7 +769,12 @@ fn a_respawn_listener_turns_off_auto_jump() {
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(1);
     game.take(1);
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     game.idle(1);
     let sent = game.take(1);
     assert!(
@@ -777,7 +792,12 @@ fn a_respawned_player_neither_swims_nor_glides() {
     game.player_mut(1).set_swimming(true);
     game.player_mut(1).set_gliding(true);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     let motion = &game.survival_mut(1).motion;
     assert!(!motion.swimming && !motion.gliding);
 }
@@ -811,7 +831,12 @@ fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
     let spawn = game.player(1).position;
     game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     assert_eq!(game.player(1).world, 0);
     assert_eq!(game.player(1).position, spawn);
 }
@@ -829,7 +854,12 @@ fn respawn_monitors_see_the_place_used_not_an_ignored_one() {
     });
     let mut game = Game::new(1, listeners);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     let feet = game.player(1).position();
     assert_eq!(drain(&mut watched), [(world::Id::DEFAULT, feet)]);
 }
@@ -847,7 +877,12 @@ fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
     });
     game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     assert_eq!(game.player(1).position, spawn);
 }
 
@@ -1647,7 +1682,12 @@ fn a_respawn_in_another_world_raises_its_world_change_after_the_reset() {
     let mut game = Game::new(1, listeners);
     add_arena(&mut game);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    damage::respawn(
+        &mut game.state,
+        sid(1),
+        damage::Trigger::Client,
+        Stay::Online,
+    );
     assert_eq!(drain(&mut seen), [(pid(1), world::Id::DEFAULT, arena)]);
     assert!(game.player(1).has_effect(effect::Type::Speed));
 }
@@ -2137,7 +2177,12 @@ fn rules_without_listeners_build_no_events_and_change_nothing() {
         game.run(vec![input]);
         assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
         game.idle(2);
-        damage::respawn(&mut game.state, sid(1), Stay::Online);
+        damage::respawn(
+            &mut game.state,
+            sid(1),
+            damage::Trigger::Client,
+            Stay::Online,
+        );
         game.idle(2);
         game.state.hash()
     };

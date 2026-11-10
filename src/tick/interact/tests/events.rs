@@ -1948,7 +1948,7 @@ fn a_place_listener_that_ends_creative_mode_has_the_block_paid_for() {
 #[test]
 fn a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement() {
     let away = listen(|_: &mut BlockPlace, cx: &mut Context<'_>| {
-        let eye = Vec3::new(20.5, -60.0 + EYE_HEIGHT, 0.5);
+        let eye = survival::eye_at(Vec3::new(20.5, -60.0, 0.5));
         survival::teleport(cx.state, SessionId::new(1), 0, eye);
     });
     let mut h = Harness::with(|_| {}, away);

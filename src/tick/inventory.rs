@@ -87,10 +87,9 @@ const CONTAINER_TYPE_NONE: u8 = 247;
 const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
 /// Where a player drops items, below its eyes: the tick keeps the eye position, so the drop
 /// point is [`DROP_HEIGHT`] above the feet, this far below the eyes.
-const DROP_BELOW_EYE: f64 = 0.32;
+const DROP_BELOW_EYE: f64 = survival::EYE_OFFSET - DROP_HEIGHT;
 /// How high above the feet a player drops an item.
 const DROP_HEIGHT: f64 = 1.3;
-const _: () = assert!((survival::EYE_HEIGHT - DROP_HEIGHT - DROP_BELOW_EYE).abs() < 1e-9);
 /// Ender chest slots.
 const ENDER: usize = crate::inventory::Kind::EnderChest.size();
 /// An ender chest.

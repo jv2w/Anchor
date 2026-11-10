@@ -143,7 +143,7 @@ fn arena(state: &mut State, output: &mut Output) -> (world::Id, usize) {
 
 /// Moves session `s` to the spawn of world `w`.
 fn move_to(state: &mut State, s: u64, w: usize) {
-    let eye = spawn_feet(state, w) + Vec3::new(0.0, 1.62, 0.0);
+    let eye = survival::eye_at(spawn_feet(state, w));
     survival::teleport(state, SessionId::new(s), w, eye);
 }
 

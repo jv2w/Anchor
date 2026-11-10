@@ -421,7 +421,7 @@ impl Player {
         self.identity.client.port
     }
 
-    /// Where the player's feet are: 1.62 below its eyes, rounded to 4 decimals,
+    /// Where the player's feet are: 1.62001 below its eyes, rounded to 4 decimals,
     /// so the feet of a player standing on a block are on it (its client sends the eyes as
     /// floats, a hair off). With [`world`](Self::world), [`yaw`](Self::yaw) and
     /// [`pitch`](Self::pitch) its location.
@@ -431,7 +431,7 @@ impl Player {
         survival::feet_at(self.eye_position())
     }
 
-    /// Where the player's eyes are: 1.62 above its feet.
+    /// Where the player's eyes are: 1.62001 above its feet, as its client counts them.
     #[doc(alias = "Entity::getEyePos")]
     pub fn eye_position(&self) -> Vec3 {
         self.marks.teleport.map_or(self.position, |(_, eye)| eye)
@@ -795,7 +795,7 @@ impl Context<'_> {
         let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
             return;
         };
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let eye = survival::eye_at(feet);
         if survival::check_destination(self.state, world.index(), eye).is_err() {
             return;
         }
@@ -842,7 +842,7 @@ impl Context<'_> {
     #[doc(alias = "Player::teleport")]
     #[doc(alias = "Entity::teleport")]
     pub fn teleport(&mut self, player: Id, world: world::Id, feet: Vec3) -> Result<()> {
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let eye = survival::eye_at(feet);
         let checked = survival::check_destination(self.state, world.index(), eye);
         self.player(player).ok_or(Error::Offline)?;
         checked?;
@@ -1298,10 +1298,7 @@ pub(super) mod tests {
         cx.teleport(id, world::Id::DEFAULT, to).unwrap();
         let p = player_mut(&mut state, 1);
         assert_eq!(p.position(), to);
-        assert_eq!(
-            p.eye_position(),
-            to + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0)
-        );
+        assert_eq!(p.eye_position(), survival::eye_at(to));
         assert_eq!(p.world(), world::Id::DEFAULT);
         run(&mut state, Vec::new());
         let moved = |packets: Vec<Packet>| {
@@ -1521,7 +1518,7 @@ pub(super) mod tests {
         run(&mut state, Vec::new());
         assert_eq!(died.try_recv(), Ok(1), "one death, dropping the bread");
         let saved = &state.saving.offline.values().next().unwrap().data;
-        let eye = to + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let eye = survival::eye_at(to);
         assert_eq!(saved.position, [eye.x, eye.y, eye.z]);
         assert!(saved.extra.contains_key("DeathPositionX"));
         assert!(

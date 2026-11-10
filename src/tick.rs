@@ -2986,7 +2986,7 @@ mod tests {
         assert!(start.hardcore && start.use_block_network_id_hashes);
         assert_eq!((start.world_seed, start.world_name.as_str()), (0, "Lobby"));
         assert_eq!(start.world_spawn, [0, -60, 0], "the flat world's spawn");
-        assert_eq!(start.player_position, [0.5, -58.38, 0.5]);
+        assert_eq!(start.player_position, [0.5, -58.37999, 0.5]);
         assert_eq!(start.game_version, crate::protocol::packet::GAME_VERSION);
         // The start-game packets, then the spawn window up to the chunk radius answer, the first
         // NetworkChunkPublisherUpdate and a chunk (P6; the survival tests check it).
@@ -4232,7 +4232,7 @@ mod tests {
             );
             assert_eq!(
                 state.players[&SessionId::new(1)].position,
-                Vec3::new(0.5, -58.38, 0.5)
+                survival::eye_at(Vec3::new(0.5, -60.0, 0.5))
             );
         }
         teleported(&mut state, 1, [160.5, -58.38, 0.5]);

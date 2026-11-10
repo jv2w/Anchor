@@ -832,7 +832,8 @@ impl Player {
     }
 
     /// Respawns a dead, spawned player at its respawn point by the end of the tick, as the
-    /// respawn button does. False if it is alive or not spawned yet.
+    /// respawn button does; its client leaves the death screen without the button. False if it
+    /// is alive or not spawned yet.
     #[doc(alias = "Player::respawn")]
     pub fn respawn(&mut self) -> bool {
         if !self.survival.is_dead() || self.phase != Phase::Spawned {
@@ -1693,7 +1694,7 @@ pub(in crate::tick) fn sync(state: &mut State, session: SessionId, stay: Stay) {
         damage::die(state, session, damage::GENERIC_DEATH, None);
     }
     if respawn {
-        damage::respawn(state, session, stay);
+        damage::respawn(state, session, damage::Trigger::Api, stay);
     }
     if killed || respawn || touched {
         attributes::flush_one(state, session);
@@ -1923,7 +1924,7 @@ mod tests {
         assert!(p.kill());
         // The client asks to respawn in the same input phase, before the death runs.
         let session = crate::tick::SessionId::new(1);
-        damage::respawn(&mut state, session, Stay::Online);
+        damage::respawn(&mut state, session, damage::Trigger::Client, Stay::Online);
         assert!(!player_mut(&mut state, 1).is_alive(), "not revived first");
         run(&mut state, Vec::new());
         let deaths = received(&mut rx1)
@@ -1937,7 +1938,7 @@ mod tests {
             inventory::take_all(p).iter().all(Stack::is_empty),
             "dropped"
         );
-        damage::respawn(&mut state, session, Stay::Online);
+        damage::respawn(&mut state, session, damage::Trigger::Client, Stay::Online);
         assert!(player_mut(&mut state, 1).is_alive());
     }
 
@@ -1980,7 +1981,7 @@ mod tests {
         cx.teleport(id, crate::world::Id::DEFAULT, feet).unwrap();
         player_mut(&mut state, 1).set_rotation(90.0, -10.0).unwrap();
         run(&mut state, Vec::new());
-        let eye = (feet + Vec3::new(0.0, crate::tick::survival::EYE_HEIGHT, 0.0)).to_f32();
+        let eye = crate::tick::survival::eye_at(feet).to_f32();
         assert_eq!(moves(received(&mut rx1).0), [(90.0, -10.0, eye)]);
         assert_eq!(moves(received(&mut rx2).0), [(90.0, -10.0, eye)]);
         run(&mut state, Vec::new());

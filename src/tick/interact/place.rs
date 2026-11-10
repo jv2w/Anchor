@@ -716,7 +716,7 @@ mod tests {
         let feet = Vec3::new(0.5, 1.0, 3.5);
         Placer {
             feet,
-            eye: feet + Vec3::new(0.0, 1.62, 0.0),
+            eye: crate::tick::survival::eye_at(feet),
             yaw: 180.0,
             sneaking: false,
         }

@@ -158,7 +158,7 @@ fn every_parameter_kind_parses() {
         [format!(
             "position {} {} -3.5",
             eye.x,
-            eye.y - crate::tick::survival::EYE_HEIGHT + 1.0
+            crate::tick::survival::feet_at(eye).y + 1.0
         )]
     );
     assert_eq!(
