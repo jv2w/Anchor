@@ -99,7 +99,7 @@ pub(crate) struct Identity {
     pub(crate) xuid: Option<u64>,
     /// The identity UUID.
     pub(crate) uuid: Uuid,
-    /// The skin the client sent at login, as the player list shows it to everyone
+    /// The player's skin ([`Skin`]), as the player list shows it to everyone
     /// (`PlayerListEntry::skin`; `AddPlayer` has no skin: a client needs the list entry first).
     pub(crate) skin: Skin,
     /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
@@ -269,16 +269,34 @@ checkpoint::fields!(Client {
     join_time_ms,
 });
 
-/// A player's skin as the client sent it at login, where it is checked
-/// ([`Skin::is_acceptable`]). Every copy of the identity shares it. The default is a transparent
-/// 64 × 32 skin on the standard model, for identities without a login (tests).
+/// A player's skin, checked where it enters ([`Skin::is_acceptable`]): the one the client sent
+/// at login or changed to in game, or one a listener or the API set. Every copy of the identity
+/// shares it. The default is a transparent 64 × 32 skin on the standard model, for identities
+/// without a login (tests).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Skin(Arc<protocol::Skin>);
 
 impl Skin {
+    /// The skin `skin`, if a login accepts it ([`is_acceptable`](Self::is_acceptable)): what the
+    /// API's skin setters take.
+    pub(crate) fn from_protocol(skin: protocol::Skin) -> Option<Self> {
+        let skin = Self::new(Arc::new(skin));
+        skin.is_acceptable().then_some(skin)
+    }
+
     /// A skin that wraps a checked one.
     pub(crate) fn new(skin: Arc<protocol::Skin>) -> Self {
         Self(skin)
+    }
+
+    /// Hashes the skin by its protocol bytes (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let mut w = protocol::Writer::new(Vec::new(), 0);
+        match protocol::Codec::encode(self.get(), &mut w) {
+            Ok(()) => h.bytes(w.as_bytes()),
+            Err(_) => h.u64(u64::MAX),
+        }
     }
 
     /// The skin as the protocol carries it.
@@ -288,10 +306,14 @@ impl Skin {
 
     /// Whether a login accepts the skin, as an in-game change and the API do: image sizes that
     /// match their data, finite animation frame counts not below 0, at most [`MAX_SKIN_BYTES`] in
-    /// all, and a geometry and a resource patch that are JSON nested at most
-    /// [`MAX_SKIN_JSON_DEPTH`] deep, as the protocol requires of both (an empty geometry is not
-    /// JSON: a skin without a custom geometry sends `{}`).
+    /// all, and a geometry and a resource patch that are each one JSON object or `null`, nested
+    /// at most [`MAX_SKIN_JSON_DEPTH`] deep, as the protocol requires of both (an empty geometry
+    /// is not JSON: a skin without a custom geometry sends `{}`).
     pub(crate) fn is_acceptable(&self) -> bool {
+        let is_skin_json = |data: &[u8]| {
+            crypto::is_object_or_null(data)
+                && crypto::is_json_within_depth(data, MAX_SKIN_JSON_DEPTH)
+        };
         // The size first: it bounds the JSON the last checks read.
         protocol::skin_validate(&self.0).is_none()
             && self
@@ -300,8 +322,8 @@ impl Skin {
                 .iter()
                 .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
             && self.size() <= MAX_SKIN_BYTES
-            && crypto::is_json_within_depth(&self.0.skin_geometry, MAX_SKIN_JSON_DEPTH)
-            && crypto::is_json_within_depth(&self.0.skin_resource_patch, MAX_SKIN_JSON_DEPTH)
+            && is_skin_json(&self.0.skin_geometry)
+            && is_skin_json(&self.0.skin_resource_patch)
     }
 
     /// The skin as the packets that carry it share it, without a copy.
@@ -349,16 +371,6 @@ impl Skin {
         .chain(pieces)
         .chain(tints)
         .fold(0_usize, usize::saturating_add)
-    }
-
-    /// Hashes the skin by its protocol bytes (state hash).
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut super::Fnv) {
-        let mut w = protocol::Writer::new(Vec::new(), 0);
-        match protocol::Codec::encode(self.get(), &mut w) {
-            Ok(()) => h.bytes(w.as_bytes()),
-            Err(_) => h.u64(u64::MAX),
-        }
     }
 }
 
@@ -823,11 +835,21 @@ mod tests {
             .is_acceptable()
         };
         let patch = Skin::default().get().skin_resource_patch.clone();
-        let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n)).into_bytes();
+        // An object `n` deep.
+        let nested = |n: usize| {
+            format!("{}{{}}{}", r#"{"a":"#.repeat(n - 1), "}".repeat(n - 1)).into_bytes()
+        };
         assert!(with(b"{}", &patch));
         assert!(with(b"null", &patch));
         assert!(with(&nested(MAX_SKIN_JSON_DEPTH), &patch));
-        for geometry in [&b""[..], b"{", b"   ", &nested(MAX_SKIN_JSON_DEPTH + 1)] {
+        for geometry in [
+            &b""[..],
+            b"{",
+            b"   ",
+            b"[]",
+            b"1",
+            &nested(MAX_SKIN_JSON_DEPTH + 1),
+        ] {
             assert!(!with(geometry, &patch), "{:?}", geometry.get(..8));
         }
         assert!(!with(b"{}", b""));

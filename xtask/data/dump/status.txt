@@ -1353,7 +1353,6 @@ entity\Living::getDisplayName merged Player::getDisplayName
 player\IPlayer::getName merged Player::getName
 player\Player::changeSkin merged Human::setSkin
 player\Player::getLeaveMessage merged PlayerQuitEvent::getQuitMessage
-player\PlayerInfo::getSkin merged Human::getSkin
 player\PlayerInfo::getExtraData differs typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept
 player\IPlayer skipped the API table's interface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`)
 player\OfflinePlayer** skipped no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before`

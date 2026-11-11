@@ -226,7 +226,10 @@ mod tests {
         assert_eq!(vanilla.skin_geometry, NO_CUSTOM_GEOMETRY);
         let accepted = |s: protocol::Skin| crate::tick::queue::Skin::new(s.into()).is_acceptable();
         assert!(accepted(vanilla));
-        let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n)).into_bytes();
+        // An object `n` deep.
+        let nested = |n: usize| {
+            format!("{}{{}}{}", r#"{"a":"#.repeat(n - 1), "}".repeat(n - 1)).into_bytes()
+        };
         let custom = skin
             .clone()
             .with_geometry("geo.x", nested(MAX_SKIN_JSON_DEPTH))

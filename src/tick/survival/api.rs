@@ -86,10 +86,14 @@ pub(super) struct Custom {
     /// Whether the API turned the player: it and its viewers see the rotation at the end of the
     /// tick, in the tick's teleport if there is one.
     pub(super) turned: bool,
-    /// Whether the skin changed (the API or the client): every player gets it at the end of the
-    /// tick, or of a later one while the server's skin budget is spent
+    /// Whether the skin changed (the API or the client): every other player gets it at the end of
+    /// the tick, or of a later one while the server's skin budget is spent
     /// ([`appearance::SkinBudget`]).
     pub(super) skin: bool,
+    /// Whether the player's own client is owed its skin ([`appearance::send_owed_skin`]): it
+    /// draws another, the one it sent at login or asked for in game, as the server set its skin
+    /// (a login listener, the API, a change listener) or refused the change.
+    pub(super) own_skin: bool,
     /// Whether an API call changed what the client or the viewers see since the last flush, so
     /// the end of the tick flushes it (the rules' own changes keep their flush).
     pub(super) touched: bool,
@@ -123,6 +127,7 @@ impl Custom {
             emote,
             turned,
             skin,
+            own_skin,
             touched,
         } = self;
         match name_tag {
@@ -164,7 +169,7 @@ impl Custom {
             Some(id) => h.bytes(id.as_bytes()),
             None => h.u64(u64::MAX),
         }
-        for flag in [turned, skin, touched] {
+        for flag in [turned, skin, own_skin, touched] {
             h.u64(u64::from(*flag));
         }
     }
@@ -196,6 +201,7 @@ impl Default for Custom {
             emote: None,
             turned: false,
             skin: false,
+            own_skin: false,
             touched: false,
         }
     }
@@ -225,6 +231,7 @@ checkpoint::fields!(Custom {
     emote,
     turned,
     skin,
+    own_skin,
     touched,
 });
 
@@ -1369,26 +1376,22 @@ impl Player {
         self.survival.touch(DATA);
     }
 
-    /// Changes the player's skin: every player sees it at the end of the tick, or of a later one
-    /// while the server's budget for skin broadcasts (about 128 KiB a second) is spent. Not
-    /// saved: the client sends its own skin at its next join. Fails for a skin a login would
-    /// refuse (image sizes that do not match their data, more than 4 MiB, a geometry or resource
-    /// patch that is not JSON nested at most 64 deep; a skin without a custom geometry has `{}`).
+    /// Changes the player's skin: every other player is sent it at the end of the tick, or of a
+    /// later one while the server's budget for skin broadcasts (about 128 KiB a second) is spent,
+    /// and the player's own client as its own player list entry once it spawned, at most as fast
+    /// as that budget refills for the skins sent to it so. Not saved: the client sends its own
+    /// skin at its next join. Fails for a skin a login would refuse: image sizes that do not
+    /// match their data, more than 4 MiB, or a geometry or resource patch that is not a JSON
+    /// object or null nested at most 64 deep (a skin without a custom geometry has `{}`).
     ///
     /// # Errors
     ///
     /// [`Error::OutOfRange`] for a skin a login would refuse.
     #[doc(alias = "Human::setSkin")]
     pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
-        let skin = Skin::new(std::sync::Arc::new(skin));
-        if !skin.is_acceptable() {
-            return Err(Error::OutOfRange);
-        }
-        self.survival
-            .appearance
-            .set_skin_id(skin.shared().full_id.clone());
-        self.identity.skin = skin;
+        self.identity.skin = Skin::from_protocol(skin).ok_or(Error::OutOfRange)?;
         self.survival.custom.skin = true;
+        self.survival.custom.own_skin = true;
         Ok(())
     }
 
@@ -1647,6 +1650,7 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
             || c.respawn
             || c.touched
             || c.skin
+            || c.own_skin
             || c.motion.is_some()
             || c.emote.is_some()
             || c.turned)
@@ -1657,13 +1661,17 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
 /// rules' flush are sent. These are the game's own steps in the tick's serial phase, so they raise
 /// their events (the call raised none, what follows from it does), but for the world change of a
 /// player that is leaving ([`Stay`]). A changed skin is left marked for
-/// [`appearance::send_skins`].
+/// [`appearance::send_skins`]; a skin owed to the player's own client goes to one staying
+/// ([`appearance::send_owed_skin`]).
 pub(in crate::tick) fn sync(state: &mut State, session: SessionId, stay: Stay) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     if player.phase != Phase::Spawned {
         return;
+    }
+    if player.survival.custom.own_skin && stay == Stay::Online {
+        appearance::send_owed_skin(player, state.tick);
     }
     let c = &mut player.survival.custom;
     let (killed, respawn, touched) = (
@@ -2706,12 +2714,23 @@ mod tests {
         let (got1, got2) = (received(&mut rx1).0, received(&mut rx2).0);
         let emotes = |g: &[Packet]| g.iter().filter(|p| matches!(p, Packet::Emote(_))).count();
         assert_eq!((emotes(&got1), emotes(&got2)), (0, 1), "the viewers only");
-        for got in [&got1, &got2] {
-            assert!(
-                got.iter()
-                    .any(|p| matches!(p, Packet::PlayerSkin(s) if s.skin.skin_id == "new"))
-            );
-        }
+        let skin_of = |g: &[Packet]| {
+            g.iter()
+                .filter_map(|p| match p {
+                    Packet::PlayerSkin(s) => Some(("skin", s.skin.skin_id.clone())),
+                    Packet::PlayerList(l) => {
+                        Some(("list", l.entries.first()?.skin.skin_id.clone()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            skin_of(&got1),
+            [("list", "new".to_owned())],
+            "its own entry"
+        );
+        assert_eq!(skin_of(&got2), [("skin", "new".to_owned())]);
     }
 
     // api: Player::setDeathPosition, Player::getInAirTicks, Entity::getHorizontalFacing,

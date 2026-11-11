@@ -407,6 +407,37 @@ checkpoint::fields!(Loading {
     let_through,
 });
 
+/// What the [`PlayerLogin`] listeners decided for an admitted login, kept from the login until
+/// the join or the leave ([`State::logins`]): which of Anchor's refusals ([`command::refusals`],
+/// in their order) they let through, and the skin they set in place of the client's.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(super) struct Admission {
+    let_through: [bool; 3],
+    skin: Option<queue::Skin>,
+}
+
+impl Admission {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self { let_through, skin } = self;
+        for &let_through in let_through {
+            h.u64(u64::from(let_through));
+        }
+        match skin {
+            Some(skin) => skin.hash_into(h),
+            None => h.u64(u64::MAX),
+        }
+    }
+
+    /// Whether the listeners decided anything the join needs.
+    fn is_kept(&self) -> bool {
+        self.let_through.contains(&true) || self.skin.is_some()
+    }
+}
+
+checkpoint::fields!(Admission { let_through, skin });
+
 impl super::Context<'_> {
     /// Sets the chunk radius `player` sees, kept from 1 to
     /// the `view-distance` of its world: its view grows or shrinks at once, and its client is
@@ -799,8 +830,17 @@ fn announce(state: &mut State, player: &Player) {
     }
 }
 
-/// Builds a player's entry in the player list (P6): the skin and device the client
-/// sent at login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the
+/// A `PlayerList` of the player's own entry alone: how its own client is sent its skin, as the
+/// lists before its spawn and a `PlayerSkin` of its own player leave the client drawing the skin
+/// it sent (seen on the client; whether this entry changes that is open: `xtask/data/p6/facts.md`).
+pub(super) fn own_list(player: &Player) -> Packet {
+    Packet::PlayerList(PlayerList {
+        entries: vec![list_entry(player)],
+    })
+}
+
+/// Builds a player's entry in the player list (P6): its skin ([`queue::Skin`]) and the device
+/// the client sent at login. The PlayFab ID is the identity token's (gophertunnel: the
 /// server-verified one; the official server's value is not confirmed).
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
@@ -867,8 +907,8 @@ fn shared_list(entries: Vec<PlayerListEntry>) -> Arc<SharedPacket> {
 
 /// Admits or refuses the verified login of `session` before its client gets anything of the
 /// resource packs: [`PlayerLogin`] decides ([`decide_login`]), and an admitted session is told
-/// so through `outbound` and offers the packs, a refused one gets its last packet. Which of
-/// Anchor's refusals a listener let through is kept for the join ([`State::logins`]).
+/// so through `outbound` and offers the packs, a refused one gets its last packet. What the
+/// listeners decided is kept for the join ([`State::logins`]).
 pub(super) fn login(
     state: &mut State,
     session: SessionId,
@@ -882,9 +922,9 @@ pub(super) fn login(
             info!(session = session.get(), player = %identity.name, %reason, "login rejected");
             output.close(outbound, packet);
         }
-        Ok(let_through) => {
-            if let_through.contains(&true) {
-                state.logins.insert(session, let_through);
+        Ok(admission) => {
+            if admission.is_kept() {
+                state.logins.insert(session, admission);
             }
             output.admit(outbound);
         }
@@ -916,8 +956,12 @@ pub(super) fn join(
         debug!(session = session.get(), "duplicate join ignored");
         return None;
     }
-    // Absent when the login let nothing through.
-    let let_through = state.logins.remove(&session).unwrap_or_default();
+    // Absent when the login's listeners decided nothing the join needs.
+    let Admission { let_through, skin } = state.logins.remove(&session).unwrap_or_default();
+    let chosen = skin.is_some();
+    if let Some(skin) = skin {
+        identity.skin = skin;
+    }
     let key = PlayerKey::of(&identity);
     let mut replaced = None;
     let mut duplicate = None;
@@ -954,7 +998,11 @@ pub(super) fn join(
             session,
             let_through,
         };
-        enter(state, loading, identity, key, outbound, output)
+        let request = enter(state, loading, identity, key, outbound, output);
+        if chosen && let Some(player) = state.players.get_mut(&session) {
+            survival::skin_chosen(player);
+        }
+        request
     };
     if let Some(e) = &duplicate {
         dispatch::watch(state, e);
@@ -1222,16 +1270,16 @@ fn duplicate_login(
 /// session offers the resource packs): Anchor's refusals ([`command::refusals`]) are the event's
 /// kick flags, listeners may clear them or set others, and the first flag left refuses the
 /// player with its screen message. Without listeners the first refusal decides
-/// ([`command::admit`]) and no event is built. Returns which of Anchor's refusals an admitted
-/// login let through (listeners cleared them; [`State::logins`]) or the refusal, and the event
-/// for the monitors, who see it after the login is decided.
+/// ([`command::admit`]) and no event is built. Returns what the listeners decided for an
+/// admitted login ([`Admission`]: the refusals they cleared, the skin they set) or the refusal,
+/// and the event for the monitors, who see it after the login is decided.
 fn decide_login(
     state: &mut State,
     identity: &Identity,
-) -> (Result<[bool; 3], Refused>, Option<PlayerLogin>) {
+) -> (Result<Admission, Refused>, Option<PlayerLogin>) {
     if !dispatch::heard::<PlayerLogin>(state) {
         let admitted = command::admit(state, identity)
-            .map(|()| [false; 3])
+            .map(|()| Admission::default())
             .map_err(|r| Refused {
                 reason: r.to_message(),
                 packet: r.packet(),
@@ -1290,9 +1338,15 @@ fn decide_login(
         );
         Refused { reason, packet }
     });
-    let admitted = match refused {
-        Some(refused) => Err(refused),
-        None => Ok(anchor.map(|r| r.is_some())),
+    let admitted = if let Some(refused) = refused {
+        Err(refused)
+    } else {
+        let set = &event.info.0.skin;
+        Ok(Admission {
+            let_through: anchor.map(|r| r.is_some()),
+            // The client's skin is the identity's own; a listener's is a new one.
+            skin: (!Arc::ptr_eq(set.shared(), identity.skin.shared())).then(|| set.clone()),
+        })
     };
     (admitted, Some(event))
 }
@@ -1970,6 +2024,98 @@ mod tests {
             assert_eq!(state.logins.len(), 1);
             run(&mut state, vec![leave(2, 1)]);
             assert!(state.logins.is_empty());
+        }
+
+        /// The skin IDs of the player list entries for `uuid` that `rx` got, packet by packet.
+        fn listed_skins(
+            rx: &mut mpsc::Receiver<Outbound>,
+            uuid: crate::protocol::Uuid,
+        ) -> Vec<Vec<String>> {
+            received(rx)
+                .0
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::PlayerList(l) => Some(
+                        l.entries
+                            .into_iter()
+                            .filter(|e| e.uuid == uuid)
+                            .map(|e| e.skin.skin_id.clone())
+                            .collect::<Vec<_>>(),
+                    ),
+                    Packet::PlayerSkin(s) => panic!("a skin packet for {:?}", s.uuid),
+                    _ => None,
+                })
+                .filter(|ids| !ids.is_empty())
+                .collect()
+        }
+
+        // api: PlayerInfo::getSkin
+        /// A skin a login listener sets is the only one any client gets for the player: the
+        /// players already in get it in the list, and the player in both lists before its spawn
+        /// and in its own entry once it spawns.
+        #[test]
+        fn a_skin_a_login_listener_sets_is_the_one_every_client_gets() {
+            let choose = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                if e.info().name() == "player2" {
+                    let mut skin = e.info().skin().clone();
+                    skin.skin_id = "chosen".to_owned();
+                    e.set_skin(skin).unwrap();
+                    log(e.info().skin().skin_id.clone());
+                }
+            };
+            let mut state = state(|_| {}, on(choose));
+            let mut first = spawn(&mut state, 1);
+            received(&mut first);
+            let mut second = spawn(&mut state, 2);
+            assert_eq!(logged(), ["chosen"]);
+            assert!(state.logins.is_empty());
+            let uuid = numbered(2).uuid;
+            assert_eq!(state.players[&SessionId::new(2)].skin().skin_id, "chosen");
+            assert_eq!(listed_skins(&mut first, uuid), [["chosen"]]);
+            assert_eq!(
+                listed_skins(&mut second, uuid),
+                [["chosen"], ["chosen"], ["chosen"]]
+            );
+        }
+
+        /// A checkpoint between the login and the join keeps the skin a login listener set.
+        #[test]
+        fn a_checkpoint_keeps_the_skin_a_login_listener_set() {
+            let choose = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                let mut skin = e.info().skin().clone();
+                skin.skin_id = "chosen".to_owned();
+                e.set_skin(skin).unwrap();
+            };
+            let mut state = state(|_| {}, on(choose));
+            let (login, _rx) = log_in_as(1, numbered(1));
+            run(&mut state, vec![login]);
+            assert_eq!(state.logins.len(), 1);
+            let pool = crate::runtime::cpu_pool(1).unwrap();
+            let fresh = new_state(settings(|_| {}), on(choose));
+            assert!(crate::tick::checkpoint::tests::assert_round_trip(
+                &state, fresh, &pool
+            ));
+            assert!(pool.shutdown());
+        }
+
+        /// A skin a login would refuse is refused and leaves the skin, and nothing is kept for the
+        /// join: the player's own client gets no entry of its own after the spawn.
+        #[test]
+        fn a_login_listener_skin_a_login_would_refuse_changes_nothing() {
+            let refused = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                let before = e.info().skin().clone();
+                let mut skin = before.clone();
+                skin.skin_data.pop();
+                log(format!("{:?}", e.set_skin(skin)));
+                assert_eq!(e.info().skin(), &before);
+            };
+            let mut state = state(|_| {}, on(refused));
+            let (login, _rx) = log_in_as(1, numbered(1));
+            run(&mut state, vec![login]);
+            assert_eq!(logged(), ["Err(OutOfRange)"]);
+            assert!(state.logins.is_empty());
+            let mut rx = spawn(&mut state, 2);
+            assert_eq!(listed_skins(&mut rx, numbered(2).uuid).len(), 2);
         }
 
         // api: PlayerPreLoginEvent

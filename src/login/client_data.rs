@@ -7,9 +7,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use super::{Error, Result};
-use crate::crypto::{
-    Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
-};
+use crate::crypto::{Algorithm, PublicKey, STD, Verifier, bounded_vec, parse_jws, verify_jws};
 use crate::entity::{MAX_SKIN_BYTES, NO_CUSTOM_GEOMETRY};
 use crate::math::to_f32;
 use crate::protocol::consts::{ArmSize, DeviceOs, PieceType};
@@ -165,10 +163,10 @@ impl ClientData {
     /// Converts the skin the client sent to the form the protocol carries to other players.
     /// The images, geometry (`{}` when empty), resource patch and animation data are decoded from
     /// base64, tint piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]), and the full
-    /// skin ID is the skin ID and the cape ID together. Fails if a field does not decode, the
-    /// geometry or the resource patch is not a JSON object or null (gophertunnel
-    /// `ClientData.Validate`), an image dimension or animation number is out of range, or the skin
-    /// is not acceptable ([`Skin::is_acceptable`]).
+    /// skin ID is the skin ID and the cape ID together. Fails if a field does not decode, an image
+    /// dimension or animation number is out of range, or the skin is not acceptable
+    /// ([`Skin::is_acceptable`], which holds the geometry and resource patch to a JSON object or
+    /// null as gophertunnel `ClientData.Validate` does).
     pub(super) fn skin(&self) -> Result<Skin> {
         // Decoding allocates at most the bound; the texts are counted with the skin after.
         let mut budget = MAX_SKIN_BYTES;
@@ -192,17 +190,11 @@ impl ClientData {
             });
         }
         let skin_resource_patch = decode(&self.skin_resource_patch)?;
-        if !is_object_or_null(&skin_resource_patch) {
-            return Err(Error::ClientData("SkinResourcePatch"));
-        }
         // The login may leave the geometry empty for none; the protocol carries none as `{}`.
         let skin_geometry = match decode(&self.skin_geometry)? {
             geometry if geometry.is_empty() => NO_CUSTOM_GEOMETRY.to_vec(),
             geometry => geometry,
         };
-        if !is_object_or_null(&skin_geometry) {
-            return Err(Error::ClientData("SkinGeometryData"));
-        }
         let skin = Skin::new(Arc::new(protocol::Skin {
             skin_id: self.skin_id.clone(),
             skin_resource_patch,

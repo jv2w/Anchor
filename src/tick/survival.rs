@@ -550,10 +550,10 @@ pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
     appearance::on_emote(state, session, packet);
 }
 
-/// Applies a `PlayerSkin`: a spawned player changes its skin in game: checked like a login skin (image
-/// sizes, at most 4 MiB), at most once a second; every player then gets it, or the player gets
-/// its old skin back if a [`PlayerChangeSkin`](crate::event::PlayerChangeSkin) listener cancels
-/// it.
+/// Applies a `PlayerSkin`: a spawned player changes its skin in game, checked like a login skin
+/// and at most once a second; every other player then gets it. The player's own client gets the
+/// player's skin back when the change is refused or a
+/// [`PlayerChangeSkin`](crate::event::PlayerChangeSkin) listener cancels or replaces it.
 pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin) {
     appearance::on_skin(state, session, packet);
 }
@@ -782,6 +782,12 @@ pub(super) fn spawned(player: &mut Player) {
     for packet in packets {
         player.send_packet(packet);
     }
+}
+
+/// Owes the player's own client its skin, which a [`PlayerLogin`](crate::event::PlayerLogin)
+/// listener chose in place of the client's ([`appearance::send_owed_skin`]).
+pub(super) fn skin_chosen(player: &mut Player) {
+    player.survival.custom.own_skin = true;
 }
 
 /// Whether the game mode takes damage and gets hungry: survival or adventure.

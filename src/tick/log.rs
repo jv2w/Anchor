@@ -110,7 +110,7 @@ const CRC_BYTES: usize = 4;
 /// session (u64), its sequence number (u64), a kind tag and the fields of its kind; an answer is a
 /// tag and its fields, each in its type's field declaration order. The body of a checkpoint is
 /// what every rule module's checkpoint codec decides.
-const FORMAT: u32 = 6;
+const FORMAT: u32 = 7;
 /// The bytes a written log's buffer reserves beyond the input bytes: the header and the
 /// checksum, rounded up.
 const HEADER_CAPACITY_BYTES: usize = 128;

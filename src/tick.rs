@@ -149,10 +149,10 @@ pub(crate) struct State {
     saving: save::Saving,
     /// Each player waiting for its saved data, by storage key.
     loading: BTreeMap<StoredPlayer, spawn::Loading>,
-    /// Which of Anchor's refusals a [`PlayerLogin`](crate::event::PlayerLogin) listener let
-    /// through, by session, for each admitted login with one let through, from the login until
-    /// the join or the leave ([`spawn::login`]).
-    logins: BTreeMap<SessionId, [bool; 3]>,
+    /// What the [`PlayerLogin`](crate::event::PlayerLogin) listeners decided, by session, for
+    /// each admitted login they let a refusal through or set a skin for, from the login until the
+    /// join or the leave ([`spawn::login`]).
+    logins: BTreeMap<SessionId, spawn::Admission>,
     /// The session of each joined player by runtime ID (players are entities to each other).
     /// Derived from `players`, so it changes only where `players` does.
     runtime_ids: BTreeMap<u64, SessionId>,
@@ -502,11 +502,9 @@ impl State {
             l.hash_into(&mut h);
         }
         h.usize(logins.len());
-        for (session, let_through) in logins {
+        for (session, admission) in logins {
             h.u64(session.get());
-            for t in let_through {
-                h.u64(u64::from(*t));
-            }
+            admission.hash_into(&mut h);
         }
         rules.hash_into(&mut h);
         clock.hash_into(&mut h);

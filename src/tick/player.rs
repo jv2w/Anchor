@@ -459,7 +459,8 @@ impl Player {
         &self.identity.client.server_address
     }
 
-    /// The skin the client sent at login.
+    /// The player's skin: the one its client sent at login or changed to in game, or one a
+    /// listener or the API set.
     #[doc(alias = "Human::getSkin")]
     pub fn skin(&self) -> &crate::protocol::Skin {
         self.identity.skin.get()
@@ -912,7 +913,8 @@ impl Context<'_> {
 /// Does what the player setters marked this tick, after the inputs, tasks and rules and before
 /// the views move and the output is built: kicked and transferred players get their last packet
 /// and leave, refused hotbar selections are answered, teleported players move, the survival
-/// marks are done, and changed skins go out within the server's skin budget.
+/// marks are done (a skin owed to a player's own client among them), and changed skins go out
+/// within the server's skin budget.
 pub(super) fn sync(state: &mut State, output: &mut Output) {
     // Most ticks mark no one: one pass over the players finds the marked ones, and the next one
     // is looked for after each is done, so marks it sets on later players are seen too.
@@ -1172,25 +1174,31 @@ pub(super) mod tests {
             p.set_skin(skin).unwrap();
         }
         sync(&mut state, &mut Output::default());
-        let first = state.players[&SessionId::new(1)].shared_outbox.clone();
+        let first = state.players[&SessionId::new(2)].shared_outbox.clone();
         assert_eq!(first.len(), 1);
-        for p in state.players.values() {
-            assert_eq!(p.shared_outbox.len(), 1, "the second skin waits");
-            assert!(std::sync::Arc::ptr_eq(&p.shared_outbox[0], &first[0]));
+        for (&s, p) in &state.players {
+            // The first skin's own client gets it as its own entry.
+            let held = usize::from(s != SessionId::new(1));
+            assert_eq!(p.shared_outbox.len(), held, "the second skin waits");
+            assert!(
+                p.shared_outbox
+                    .iter()
+                    .all(|q| std::sync::Arc::ptr_eq(q, &first[0]))
+            );
             assert!(p.outbox.iter().all(|p| !matches!(p, Packet::PlayerSkin(_))));
         }
-        // One copy held by every receiver (and this test): no copy per receiver.
+        // One copy held by every other player (and this test): no copy per receiver.
         assert_eq!(
             std::sync::Arc::strong_count(&first[0]),
-            usize::try_from(PLAYERS).unwrap() + 1
+            usize::try_from(PLAYERS).unwrap()
         );
         drop(first);
         assert!(survival::marked(&state.players[&SessionId::new(2)]));
         for p in state.players.values_mut() {
             p.shared_outbox.clear();
         }
-        // The second skin goes to everyone once the budget has refilled what it lacks: 2 MiB at
-        // 128 KiB a second, 16 seconds.
+        // The second skin goes to every other player once the budget has refilled what it lacks:
+        // 2 MiB at 128 KiB a second, 16 seconds.
         let mut skins = vec![Vec::new(); receivers.len()];
         for t in 0..20 * 20 {
             run(&mut state, Vec::new());
@@ -1207,7 +1215,10 @@ pub(super) mod tests {
                 break;
             }
         }
-        assert!(skins.iter().all(|s| s == &["big2"]));
+        for (i, skins) in skins.iter().enumerate() {
+            assert_eq!(skins.len(), usize::from(i != 1), "all but its own client");
+            assert!(skins.iter().all(|id| id == "big2"));
+        }
     }
 
     /// Players 1 and 2 spawned next to each other, their queues emptied.

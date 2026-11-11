@@ -59,7 +59,9 @@ cancellable! {
 /// Raised when a player changes skin in game.
 ///
 /// Cancelling keeps the old skin, and so does a listener that sets the player's skin through the
-/// API.
+/// API; the player's own client, which draws the skin it asked for, is sent the skin back as its
+/// own player list entry. A change a login would refuse, or one within a second of the last, is
+/// refused without the event, and the skin is sent back too.
 #[doc(alias = "PlayerChangeSkinEvent")]
 #[derive(Debug)]
 pub struct PlayerChangeSkin {
@@ -87,9 +89,9 @@ impl PlayerChangeSkin {
         self.old_skin.get()
     }
 
-    /// Replaces the skin after. It is checked like a login skin (image sizes, at most 4 MiB in
-    /// all, geometry and resource patch JSON nested at most 64 deep); a skin that fails cancels
-    /// the change.
+    /// Replaces the skin after; the player's own client is sent it as its own player list entry.
+    /// It is checked as [`Player::set_skin`](crate::player::Player::set_skin) checks a skin; a
+    /// skin that fails cancels the change.
     #[doc(alias = "PlayerChangeSkinEvent::setNewSkin")]
     pub fn set_new_skin(&mut self, skin: protocol::Skin) {
         self.new_skin = Skin::new(Arc::new(skin));
@@ -1018,7 +1020,8 @@ cancellable! {
 /// player is online, its slot does not count toward a full server; [`PlayerDuplicateLogin`]
 /// decides at the join. At the join, a refusal that applies only since this event (the server
 /// filled, a ban or a whitelist change) refuses the player too, unless a listener cleared its
-/// flag here.
+/// flag here. A listener may also set the skin every client is sent for the player
+/// ([`set_skin`](Self::set_skin)).
 #[doc(alias = "PlayerPreLoginEvent")]
 #[doc(alias = "PlayerLoginEvent")]
 #[derive(Debug)]
@@ -1133,6 +1136,19 @@ impl PlayerLogin {
         });
     }
 
+    /// Sets the player's skin in place of the one its client sent: no client is sent the
+    /// client's, every other client is sent this one, and the player's own client is sent it as
+    /// its own player list entry once it spawned. Checked as
+    /// [`Player::set_skin`](crate::player::Player::set_skin) checks a skin.
+    ///
+    /// # Errors
+    ///
+    /// [`player::Error::OutOfRange`] for a skin a login would refuse; the skin stays as it was.
+    pub fn set_skin(&mut self, skin: protocol::Skin) -> player::Result<()> {
+        self.info.0.skin = Skin::from_protocol(skin).ok_or(player::Error::OutOfRange)?;
+        Ok(())
+    }
+
     /// The messages of `flag`, if it is set.
     fn kick(&self, flag: KickFlag) -> Option<&Kick> {
         #[expect(
@@ -1205,6 +1221,12 @@ impl PlayerInfo {
     #[doc(alias = "PlayerInfo::getUsername")]
     pub fn name(&self) -> &str {
         &self.0.name
+    }
+
+    /// The player's skin: the one the client sent, or the one a [`PlayerLogin`] listener set.
+    #[doc(alias = "PlayerInfo::getSkin")]
+    pub fn skin(&self) -> &protocol::Skin {
+        self.0.skin.get()
     }
 
     /// The identity UUID the client sent.

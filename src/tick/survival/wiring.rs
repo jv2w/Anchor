@@ -1978,13 +1978,17 @@ fn skin(id: &str) -> crate::protocol::Skin {
 
 /// A skin packet of session `s`.
 fn skin_input(game: &mut Game, s: u64, skin: crate::protocol::Skin) -> Input {
-    let packet = p::PlayerSkin {
+    game.send(s, Packet::PlayerSkin(player_skin(skin)))
+}
+
+/// The `PlayerSkin` a client sends to change to `skin`.
+fn player_skin(skin: crate::protocol::Skin) -> p::PlayerSkin {
+    p::PlayerSkin {
         uuid: crate::protocol::Uuid::default(),
         skin: std::sync::Arc::new(skin),
         new_skin_name: String::new(),
         old_skin_name: String::new(),
-    };
-    game.send(s, Packet::PlayerSkin(packet))
+    }
 }
 
 /// The full skin IDs of the `PlayerSkin` packets in `packets`.
@@ -1995,6 +1999,18 @@ fn skins(packets: &[Packet]) -> Vec<String> {
             Packet::PlayerSkin(s) => Some(s.skin.full_id.clone()),
             _ => None,
         })
+        .collect()
+}
+
+/// The full skin IDs of the player list entries in `packets`.
+fn listed_skins(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::PlayerList(l) => Some(l.entries.iter().map(|e| e.skin.full_id.clone())),
+            _ => None,
+        })
+        .flatten()
         .collect()
 }
 
@@ -2010,31 +2026,72 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     let old = game.player(1).skin().full_id.clone();
     let input = skin_input(&mut game, 1, skin("no"));
     game.run(vec![input]);
-    assert_eq!(skins(&game.take(1)), [old], "its own skin back");
+    let back = game.take(1);
+    assert_eq!(
+        listed_skins(&back),
+        [old],
+        "its own skin back, as its own entry"
+    );
+    assert!(skins(&back).is_empty());
     assert!(skins(&game.take(2)).is_empty());
     game.idle(20);
     let input = skin_input(&mut game, 1, skin("new"));
     game.run(vec![input]);
     assert_eq!(skins(&game.take(2)), ["new"]);
     assert_eq!(game.player(1).skin().full_id, "new");
-    // Sent back, too fast, or with images that do not match their size: ignored.
-    for s in [skin("new"), skin("fast")] {
-        let input = skin_input(&mut game, 1, s);
-        game.run(vec![input]);
-    }
+    // Sent back: no change. Too fast, or with images that do not match their size: refused, and
+    // its own skin goes back.
+    let input = skin_input(&mut game, 1, skin("new"));
+    game.run(vec![input]);
+    let own = game.take(1);
+    assert!(listed_skins(&own).is_empty() && skins(&own).is_empty());
+    let input = skin_input(&mut game, 1, skin("fast"));
+    game.run(vec![input]);
+    assert_eq!(listed_skins(&game.take(1)), ["new"]);
     game.idle(20);
     let mut bad = skin("bad");
     bad.skin_data.pop();
-    let packet = p::PlayerSkin {
-        uuid: crate::protocol::Uuid::default(),
-        skin: std::sync::Arc::new(bad),
-        new_skin_name: String::new(),
-        old_skin_name: String::new(),
-    };
-    on_skin(&mut game.state, sid(1), &packet);
+    on_skin(&mut game.state, sid(1), &player_skin(bad));
     game.idle(1);
+    assert_eq!(listed_skins(&game.take(1)), ["new"]);
     assert!(skins(&game.take(2)).is_empty());
     assert_eq!(game.player(1).skin().full_id, "new");
+}
+
+// api: Human::setSkin
+/// A skin the API sets goes to the player's own client as its own entry, and the skins sent back
+/// to it go no faster than the skin budget refills for their bytes.
+#[test]
+fn skins_go_back_to_the_player_no_faster_than_the_budget_refills() {
+    let mut game = Game::new(2, Listeners::default());
+    game.player_mut(1).set_skin(big_skin("big")).unwrap();
+    game.idle(1);
+    assert_eq!(listed_skins(&game.take(1)), ["big"]);
+    let size = crate::tick::queue::Skin::new(std::sync::Arc::new(big_skin("big"))).size();
+    let wait = size.div_ceil(super::appearance::SKIN_REFILL_BYTES_PER_TICK);
+    let mut bad = skin("bad");
+    bad.skin_data.pop();
+    on_skin(&mut game.state, sid(1), &player_skin(bad));
+    // The skin went out in the first idle tick; the last tick before it may go again.
+    game.idle(u32::try_from(wait).unwrap() - 1);
+    assert!(listed_skins(&game.take(1)).is_empty());
+    game.idle(1);
+    assert_eq!(listed_skins(&game.take(1)), ["big"]);
+}
+
+// api: PlayerChangeSkinEvent::setNewSkin
+/// A skin a listener puts in place of the asked one goes to the player's own client too.
+#[test]
+fn a_skin_a_change_listener_sets_goes_to_the_player_too() {
+    let listeners = on(|e: &mut PlayerChangeSkin, _: &mut Context<'_>| {
+        e.set_new_skin(skin("set"));
+    });
+    let mut game = Game::new(2, listeners);
+    let input = skin_input(&mut game, 1, skin("asked"));
+    game.run(vec![input]);
+    assert_eq!(game.player(1).skin().full_id, "set");
+    assert_eq!(listed_skins(&game.take(1)), ["set"]);
+    assert_eq!(skins(&game.take(2)), ["set"]);
 }
 
 // api: PlayerChangeSkinEvent
@@ -2050,6 +2107,7 @@ fn a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change() {
     let input = skin_input(&mut game, 1, skin("asked"));
     game.run(vec![input]);
     assert_eq!(game.player(1).skin().full_id, "api");
+    assert_eq!(listed_skins(&game.take(1)), ["api"]);
     assert_eq!(skins(&game.take(2)), ["api"]);
 }
 
