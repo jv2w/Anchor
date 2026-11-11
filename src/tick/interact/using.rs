@@ -305,8 +305,8 @@ fn place_held(
 }
 
 /// The blocks that placing `held` against the face `face` of the block at `pos` sets, if
-/// adventure mode allows it and at least one block changes. The place is not checked: the game
-/// chose it.
+/// adventure mode allows it, at least one block changes and nothing is in the way. The cheap
+/// checks come first.
 fn placement(
     state: &State,
     actor: &Actor,
@@ -324,7 +324,20 @@ fn placement(
     }
     let blocks = place::placement(w, item, pos, face, click, Some(&actor.placer()))?;
     let changes = blocks.iter().any(|(p, s)| w.block(*p) != Some(*s));
-    changes.then_some(blocks)
+    if !changes || blocks.iter().any(|(p, s)| obstructed(state, world, *p, *s)) {
+        return None;
+    }
+    Some(blocks)
+}
+
+/// Whether a player or an entity is in the way of `block` at `pos`: one of the block's collision
+/// boxes overlaps it ([`entity::occupied`]).
+fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState) -> bool {
+    let at = pos.to_corner();
+    block
+        .collision_boxes()
+        .iter()
+        .any(|b| entity::occupied(state, world, b.offset(at)))
 }
 
 /// Whether, after listeners ran, the player is still in the world of `actor`, not a

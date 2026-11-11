@@ -4355,6 +4355,21 @@ pub(super) fn has_room(state: &State, world: WorldIndex, count: usize) -> bool {
         .is_some_and(|n| n <= MAX_ENTITIES_PER_WORLD)
 }
 
+/// Whether something in `world` refuses a block whose box is `area`: an entity that refuses
+/// blocks in its box ([`Entity::is_obstacle`]) or a player that is spawned, alive and not a
+/// spectator, whose box overlaps it.
+pub(super) fn occupied(state: &State, world: WorldIndex, area: Aabb) -> bool {
+    let entities = &state.rules.entities;
+    let mut found = false;
+    entities.each_nearby(world, area, |id| {
+        found = found || entities.get(id).is_some_and(Entity::is_obstacle);
+    });
+    if !found {
+        each_player_in(state, world, area, HOOKS, |_, _| found = true);
+    }
+    found
+}
+
 /// Tells the viewers of the villager NPC `id` that its trade tier or xp changed from `before`
 /// (a trade, a change of its offers): they get the changed keys.
 pub(super) fn villager_traded(state: &mut State, id: Id, before: (u8, u32)) {

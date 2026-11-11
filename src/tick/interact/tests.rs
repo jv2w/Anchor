@@ -1743,18 +1743,32 @@ fn a_chest_stays_when_its_items_have_nowhere_to_wait() {
     assert_eq!(total(&h), before);
 }
 
-/// A block goes where the game sent it, even into a player standing there.
+/// A block whose box a player or an NPC stands in is not placed and the client is sent the clicked
+/// block back; a block without a box (a torch) goes there.
 #[test]
-fn a_block_is_placed_into_a_standing_player() {
+fn a_block_is_not_placed_into_a_standing_player_or_npc() {
     let mut h = Harness::new(|_| {});
     let planks = block_item(Kind::OakPlanks, 5);
     h.hold(planks.clone());
     // The player stands at the feet position (0.5, -60, 0.5).
     let ground = BlockPos::new(0, -61, 0);
+    h.packets();
     let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &planks)));
     h.run(vec![input]);
-    assert_eq!(h.block(BlockPos::new(0, -60, 0)).kind(), Kind::OakPlanks);
-    assert_eq!(h.held().count(), 4);
+    assert_eq!(h.block(BlockPos::new(0, -60, 0)), block::AIR);
+    assert_eq!(h.held().count(), 5);
+    let sent = updates(&h.packets());
+    assert!(sent.contains(&ground), "{sent:?}");
+    let zombie = Vec3::new(2.5, -60.0, 0.5);
+    entity::spawn_npc(&mut h.state, 0, zombie, entity::Npc::Zombie).unwrap();
+    place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(TARGET), block::AIR);
+    assert_eq!(h.held().count(), 5);
+    let torch = block_item(Kind::Torch, 1);
+    h.hold(torch.clone());
+    let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &torch)));
+    h.run(vec![input]);
+    assert_eq!(h.block(BlockPos::new(0, -60, 0)).kind(), Kind::Torch);
 }
 
 #[test]
