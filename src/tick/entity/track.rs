@@ -282,7 +282,7 @@ pub(super) fn data(entity: &Entity, flags: u64, radius: Option<f64>) -> Packet {
         );
         m.insert(
             EntityDataKey::Width as u32,
-            MetadataValue::Float32(to_f32(entity.size().0)),
+            MetadataValue::Float32(to_f32(entity.kind.size().0)),
         );
     }
     Packet::SetActorData(SetActorData {
@@ -294,7 +294,8 @@ pub(super) fn data(entity: &Entity, flags: u64, radius: Option<f64>) -> Packet {
 
 /// The metadata of an entity, with the flags last sent.
 fn metadata(entity: &Entity) -> EntityMetadata {
-    let (width, height) = entity.size();
+    // The box goes unscaled: the client multiplies it by the scale (key 38).
+    let (width, height) = entity.kind.size();
     let mut m = EntityMetadata::new();
     let mut put = |k: EntityDataKey, v: MetadataValue| {
         m.insert(k as u32, v);

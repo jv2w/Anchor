@@ -282,6 +282,14 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
         m.get(&(EntityDataKey::Scale as u32)),
         Some(&MetadataValue::Float32(2.0))
     );
+    // The client scales the box it gets, so the box goes unscaled.
+    for side in [EntityDataKey::Width, EntityDataKey::Height] {
+        assert_eq!(
+            m.get(&(side as u32)),
+            Some(&MetadataValue::Float32(0.98)),
+            "{side:?}"
+        );
+    }
     assert_eq!(
         m.get(&(EntityDataKey::AlwaysShowNameTag as u32)),
         Some(&MetadataValue::Byte(1))
