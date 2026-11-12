@@ -1379,8 +1379,10 @@ impl Player {
     /// Changes the player's skin: every other player is sent it at the end of the tick, or of a
     /// later one while the server's budget for skin broadcasts (about 128 KiB a second) is spent,
     /// and the player's own client as its own player list entry once it spawned, at most as fast
-    /// as that budget refills for the skins sent to it so. Not saved: the client sends its own
-    /// skin at its next join. Fails for a skin a login would refuse: image sizes that do not
+    /// as that budget refills for the skins sent to it so. The own client draws it on its own
+    /// model only with the skin's geometry sent in full; with `{}` only the other clients draw it
+    /// (seen on the client 1.26.63). Not saved: the client sends its own skin at its next join.
+    /// Fails for a skin a login would refuse: image sizes that do not
     /// match their data, more than 4 MiB, or a geometry or resource patch that is not a JSON
     /// object or null nested at most 64 deep (a skin without a custom geometry has `{}`).
     ///

@@ -1138,8 +1138,8 @@ impl PlayerLogin {
 
     /// Sets the player's skin in place of the one its client sent: no client is sent the
     /// client's, every other client is sent this one, and the player's own client is sent it as
-    /// its own player list entry once it spawned. Checked as
-    /// [`Player::set_skin`](crate::player::Player::set_skin) checks a skin.
+    /// its own player list entry once it spawned. Checked, and drawn on the player's own model,
+    /// as [`Player::set_skin`](crate::player::Player::set_skin) says.
     ///
     /// # Errors
     ///

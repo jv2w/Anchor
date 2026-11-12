@@ -317,8 +317,8 @@ pub(in crate::tick) fn skin_waits(player: &Player) -> bool {
 
 /// Sends the skin of the player of `session` to every other player, one copy shared by all of
 /// them, and clears its mark, if it fits in the skin budget; false, sending nothing, if it does
-/// not. The player's own client is sent its skin by [`send_owed_skin`]: a `PlayerSkin` of its own
-/// player leaves it drawing the skin it has (`xtask/data/p6/facts.md`).
+/// not. The player's own client is sent its skin by [`send_owed_skin`], in its own list entry: the
+/// way it was seen to draw a server's skin on its own model (`xtask/data/p6/facts.md`).
 fn send_skin(state: &mut State, session: SessionId) -> bool {
     let Some(player) = state.players.get_mut(&session) else {
         return true;

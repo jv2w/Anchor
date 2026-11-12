@@ -830,9 +830,9 @@ fn announce(state: &mut State, player: &Player) {
     }
 }
 
-/// A `PlayerList` of the player's own entry alone: how its own client is sent its skin, as the
-/// lists before its spawn and a `PlayerSkin` of its own player leave the client drawing the skin
-/// it sent (seen on the client; whether this entry changes that is open: `xtask/data/p6/facts.md`).
+/// A `PlayerList` of the player's own entry alone: how its own client is sent its skin, which it
+/// then draws on its own model if the skin's geometry is sent in full (seen on the client:
+/// `xtask/data/p6/facts.md`).
 pub(super) fn own_list(player: &Player) -> Packet {
     Packet::PlayerList(PlayerList {
         entries: vec![list_entry(player)],
