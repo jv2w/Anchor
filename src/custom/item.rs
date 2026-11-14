@@ -4,10 +4,12 @@
 use super::{Category, Creative};
 use crate::inventory::MAX_STACK;
 use crate::item::{self, Armor, ArmorSlot, Class, Food};
-use crate::nbt::{Compound, Value};
+use crate::nbt::{Compound, List, Value};
 
 /// The `use_animation` of eating (1 eat, 2 drink).
 const EAT_ANIMATION: i32 = 1;
+/// The item tag of armor the client draws a trim on.
+const TAG_TRIMMABLE: &str = "minecraft:trimmable_armors";
 
 /// A custom item: a `static` definition the server is given with
 /// [`ServerBuilder::custom_item`](crate::ServerBuilder::custom_item). Its icon comes from a
@@ -34,6 +36,7 @@ pub struct Item {
     hand_equipped: bool,
     glint: bool,
     breaks_in_creative: bool,
+    trimmable: bool,
 }
 
 impl Item {
@@ -76,6 +79,7 @@ impl Item {
             hand_equipped: false,
             glint: false,
             breaks_in_creative: true,
+            trimmable: false,
         }
     }
 
@@ -101,6 +105,9 @@ impl Item {
         }
         if self.info.armor().is_some() && stack != 1 {
             return Some("an item worn stacks to more than 1");
+        }
+        if self.trimmable && self.info.armor().is_none() {
+            return Some("a trimmable item is not worn");
         }
         if let Some(food) = self.info.food() {
             if self.info.max_durability() > 0 {
@@ -171,6 +178,14 @@ impl Item {
     #[must_use]
     pub const fn off_hand_allowed(mut self) -> Self {
         self.off_hand_allowed = true;
+        self
+    }
+
+    /// The same item taking an armor trim: the client draws the trim a stack's
+    /// [`TAG_TRIM`](item::TAG_TRIM) names on it. It must be worn.
+    #[must_use]
+    pub const fn trimmable(mut self) -> Self {
+        self.trimmable = true;
         self
     }
 
@@ -273,7 +288,8 @@ impl Item {
     }
 
     /// The `ItemRegistry` data of the item: the item properties (icon, creative place, stack
-    /// size and the flags), the display name, and the durability, wearable and food components.
+    /// size and the flags), the display name, the durability, wearable and food components, and
+    /// the tags.
     pub(super) fn to_components(&self) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category, c.group.unwrap_or_default()),
@@ -342,6 +358,16 @@ impl Item {
                         Value::String(wearable_slot(armor.slot()).to_owned()),
                     ),
                 ])),
+            );
+        }
+        // The official server sends a component item's tags both as `item_tags` and as the
+        // `minecraft:tags` component.
+        if self.trimmable {
+            let tags = || Value::List(List::String(vec![TAG_TRIMMABLE.to_owned()]));
+            components.insert("item_tags".to_owned(), tags());
+            components.insert(
+                "minecraft:tags".to_owned(),
+                Value::Compound(Compound::from([("tags".to_owned(), tags())])),
             );
         }
         if let Some(food) = self.info.food() {

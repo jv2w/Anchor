@@ -38,6 +38,8 @@ static HEAD_FOOD: Item = Item::new("test:head_food", "Food", "food")
 static HEAD_STACK: Item = Item::new("test:head_stack", "Stack", "stack")
     .with_armor_slot(item::ArmorSlot::Head)
     .with_max_stack_size(2);
+/// An item that takes a trim but is not worn.
+static HELD_TRIM: Item = Item::new("test:held_trim", "Trim", "trim").trimmable();
 /// An item worn on the head.
 pub(crate) static HELMET: Item =
     Item::new("test:helmet", "Helmet", "test_helmet").with_armor_slot(item::ArmorSlot::Head);
@@ -289,6 +291,26 @@ fn a_worn_item_is_armor_of_no_protection_in_its_slot() {
         child_compound(components, "minecraft:wearable").get("slot"),
         Some(&Value::String("slot.armor.feet".to_owned()))
     );
+}
+
+#[test]
+fn a_trimmable_item_carries_the_trimmable_armor_tag_in_both_forms() {
+    let tags = Value::List(List::String(vec!["minecraft:trimmable_armors".to_owned()]));
+    let trimmable = Item::new("a:b", "n", "i")
+        .with_armor_slot(item::ArmorSlot::Chest)
+        .trimmable();
+    assert_eq!(trimmable.check(), None);
+    let components = trimmable.to_components();
+    let components = child_compound(&components, "components");
+    assert_eq!(components.get("item_tags"), Some(&tags));
+    assert_eq!(
+        child_compound(components, "minecraft:tags").get("tags"),
+        Some(&tags)
+    );
+    let components = HELMET.to_components();
+    let components = child_compound(&components, "components");
+    assert_eq!(components.get("item_tags"), None);
+    assert_eq!(components.get("minecraft:tags"), None);
 }
 
 #[test]
@@ -906,6 +928,7 @@ fn invalid_definitions_refuse_the_build() {
         (&WORN_STACK, "durability"),
         (&HEAD_FOOD, "worn food"),
         (&HEAD_STACK, "worn stack"),
+        (&HELD_TRIM, "held trim"),
     ] {
         assert!(
             matches!(finish(|r| r.add_item(item)), Err(Error::Definition { .. })),
