@@ -135,11 +135,21 @@ pub(super) struct View {
     fakes: BTreeMap<FakeKey, block::State>,
     /// The container blocks of the open menu, shown over the user's fake blocks.
     menu: [Option<(BlockPos, block::State)>; 2],
+    /// The block under the feet of a player teleported to a chunk its client was not sent
+    /// ([`Self::await_ground`]): until the client is answered that block's sub-chunk it lacks the
+    /// ground there and falls into it.
+    awaited: Option<BlockPos>,
     /// What the output phase sends this tick; empty between ticks.
     pub(super) out: Out,
 }
 
 impl View {
+    /// Whether the client lacks the ground under the place it was teleported to
+    /// ([`Self::await_ground`]).
+    pub(super) fn awaits_ground(&self) -> bool {
+        self.awaited.is_some()
+    }
+
     /// Whether the client was sent chunk `pos` and still sees it.
     pub(super) fn can_see(&self, pos: ChunkPos) -> bool {
         self.sent.contains(&pos)
@@ -175,6 +185,7 @@ impl View {
             queued_offsets: _,
             fakes,
             menu,
+            awaited,
             out: _,
         } = self;
         h.u64(u64::from(*radius));
@@ -217,6 +228,10 @@ impl View {
                 Some((pos, b)) => block(h, *pos, *b),
                 None => h.u64(0),
             }
+        }
+        match awaited {
+            Some(pos) => h.bytes(&[pos.x, pos.y, pos.z].map(i32::to_le_bytes).concat()),
+            None => h.u64(0),
         }
     }
 
@@ -263,6 +278,15 @@ impl View {
         set_bits(&self.unsent, 0)
             .map(|rank| at(self.center, disc.offset(rank)))
             .collect()
+    }
+
+    /// Notes that the player was teleported with its feet at block `feet`: when its client was
+    /// not sent that chunk (another world, far away), the client lacks the ground under it until
+    /// the sub-chunk of the block below is answered, and its moves into blocks are refused till
+    /// then (`survival::movement`).
+    pub(super) fn await_ground(&mut self, feet: BlockPos) {
+        self.awaited = (!self.sent.contains(&feet.chunk()))
+            .then(|| BlockPos::new(feet.x, feet.y.saturating_sub(1), feet.z));
     }
 
     /// Marks chunk `pos` as one whose block changes send the water clear too ([`water_packet`]),
@@ -372,6 +396,7 @@ impl super::checkpoint::Codec for View {
             queued_offsets: _,
             fakes,
             menu,
+            awaited,
             out: _,
         } = self;
         center.encode(w);
@@ -382,6 +407,7 @@ impl super::checkpoint::Codec for View {
         requests.encode(w);
         fakes.encode(w);
         menu.encode(w);
+        awaited.encode(w);
     }
 
     fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
@@ -393,6 +419,7 @@ impl super::checkpoint::Codec for View {
         let requests: VecDeque<SubChunkRequest> = Codec::decode(r)?;
         let fakes = Codec::decode(r)?;
         let menu = Codec::decode(r)?;
+        let awaited = Codec::decode(r)?;
         if radius > MAX_RADIUS {
             return Err(checkpoint::Error::Format("view radius"));
         }
@@ -438,6 +465,7 @@ impl super::checkpoint::Codec for View {
             queued_offsets,
             fakes,
             menu,
+            awaited,
             out: Out::default(),
         })
     }
@@ -1403,6 +1431,21 @@ fn update_player(settings: &Settings, worlds: &Worlds, chunks: &mut Chunks, play
         .count();
     view.queued_offsets = view.queued_offsets.saturating_sub(offsets);
     view.out.answers.extend(view.requests.drain(..take));
+    // The ground the client lacked after a teleport arrives with this tick's answers; out of the
+    // view it never comes.
+    if let Some(ground) = view.awaited {
+        let sub_chunk = usize::try_from((ground.y >> 4).saturating_sub(MIN_SUB_CHUNK_Y)).ok();
+        let answered = view.out.answers.iter().any(|r| {
+            r.dimension == 0
+                && r.offsets
+                    .iter()
+                    .any(|&o| target(r, o) == sub_chunk.map(|i| (ground.chunk(), i)))
+        });
+        let r2 = i32::from(view.radius) * i32::from(view.radius);
+        if answered || distance(ground.chunk(), view.center) > r2 {
+            view.awaited = None;
+        }
+    }
 }
 
 /// Opens or moves a player's view: the chunks it gains are held, those it loses released and
@@ -3825,6 +3868,46 @@ mod tests {
             ];
             assert_eq!(sent, sub_chunk_bytes(want));
         }
+    }
+
+    /// The view of session 1, to change it.
+    fn view(state: &mut State) -> &mut View {
+        &mut state
+            .players
+            .get_mut(&crate::tick::SessionId::new(1))
+            .unwrap()
+            .view
+    }
+
+    /// A teleport to a chunk the client was sent awaits no ground; one to a chunk it was not
+    /// awaits the block under the feet until the answer that holds its sub-chunk, or until the
+    /// chunk leaves the view.
+    #[test]
+    fn the_ground_after_a_teleport_is_awaited_until_its_sub_chunk_is_answered() {
+        let (mut state, mut output, _receivers) = sent_views(&[1]);
+        view(&mut state).await_ground(BlockPos::new(0, -60, 0));
+        assert!(!view(&mut state).awaits_ground(), "a sent chunk");
+        view(&mut state).await_ground(BlockPos::new(16_000, -60, 0));
+        assert_eq!(
+            view(&mut state).awaited,
+            Some(BlockPos::new(16_000, -61, 0)),
+            "a chunk not sent"
+        );
+        // The spawn chunk awaited as though it was not sent yet, as after a teleport into another
+        // world.
+        view(&mut state).awaited = Some(BlockPos::new(0, -61, 0));
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(view(&mut state).awaits_ground(), "no answer yet");
+        let request = crate::tick::tests::packet(Packet::SubChunkRequest(column_request()));
+        tick(
+            &mut state,
+            &mut vec![crate::tick::tests::input(1, 2, request)],
+            &mut output,
+        );
+        assert!(!view(&mut state).awaits_ground(), "answered");
+        view(&mut state).awaited = Some(BlockPos::new(1000, -61, 0));
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(!view(&mut state).awaits_ground(), "out of the view");
     }
 
     /// A client that names one sub-chunk 1024 times in each of 64 requests gets at most

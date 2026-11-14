@@ -3878,6 +3878,10 @@ mod tests {
         assert_eq!(p.world, 1);
         assert_eq!(p.position, eye_at(Vec3::new(2.5, -60.0, 2.5)));
         assert!(!p.survival.is_dead());
+        assert!(
+            p.view.awaits_ground(),
+            "its client has none of the other world"
+        );
         // A spawn point in a world the server does not run: the default world's spawn.
         server.survival_mut(1).spawn = Some(Point {
             world: "gone".to_owned(),

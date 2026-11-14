@@ -9,7 +9,7 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage, Trigger};
 use super::effects::{self, Active};
-use super::{Stay, Survival, attributes, feet, food, sound};
+use super::{Stay, Survival, attributes, feet, feet_at, food, sound};
 use crate::block::{self, Class};
 use crate::effect::Type as Effect;
 use crate::event::{
@@ -521,7 +521,9 @@ fn miss_swing(state: &mut State, session: SessionId) {
     super::watch(state, event.as_ref());
 }
 
-/// Handles a movement of the eyes to `target`; the 15-block check only with `movement-check`.
+/// Handles a movement of the eyes to `target`; the 15-block check only with `movement-check`. A
+/// move into a chunk the server has not loaded, or into a block while the client lacks the
+/// ground ([`enters_block`]), sends the player back.
 fn handle_movement(state: &mut State, session: SessionId, target: Vec3) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -532,11 +534,10 @@ fn handle_movement(state: &mut State, session: SessionId, target: Vec3) {
         return;
     }
     let distance = target.distance_squared(player.position);
-    let loaded = state
-        .worlds
-        .get(player.world)
-        .is_some_and(|w| w.is_chunk_loaded(BlockPos::containing(target).chunk()));
-    if (state.settings.movement_check && distance > MAX_MOVE_SQUARED) || !loaded {
+    let world = state.worlds.get(player.world);
+    let loaded = world.is_some_and(|w| w.is_chunk_loaded(BlockPos::containing(target).chunk()));
+    let blocked = world.is_some_and(|w| enters_block(w, player, target));
+    if (state.settings.movement_check && distance > MAX_MOVE_SQUARED) || !loaded || blocked {
         send_position(player, MoveMode::Reset);
         return;
     }
@@ -588,6 +589,50 @@ fn is_on_ground(state: &State, player: &Player, delta: Vec3) -> bool {
         return has_collision(world, bb);
     }
     has_collision(world, bb.stretch(-delta))
+}
+
+/// Whether moving the player's eyes to `target` puts its body into a block, or past one on its
+/// way down, that it is not in already, while its client lacks the ground after a teleport
+/// ([`View::await_ground`](crate::tick::view::View::await_ground)). A client whose terrain has
+/// not arrived (a respawn or teleport far away or into another world) falls into the ground
+/// under it; Anchor does not simulate a player's movement, as the official server does to
+/// correct such a prediction (P6), so it refuses the fall until the ground is sent, and without
+/// that the player would stay a block low. Other moves are the client's: a check of every move
+/// against the server's blocks would refuse moves the client makes before the server knows of
+/// them (a block broken and stepped into in one input). A player without block collision enters
+/// anything.
+fn enters_block(world: &World, player: &Player, target: Vec3) -> bool {
+    if !player.view.awaits_ground() || !player.survival.has_block_collision() {
+        return false;
+    }
+    let inset = Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET);
+    let body = |feet: Vec3| {
+        let bb = bounding_box(&player.survival, feet);
+        Aabb::new(bb.min + inset, bb.max - inset)
+    };
+    let (from, to) = (feet(player), feet_at(target));
+    let at_end = body(to);
+    // Stretched up to where it was, so a fall past a thin floor between two inputs counts.
+    let top = crate::math::max(body(from).max.y, at_end.max.y);
+    let path = Aabb::new(at_end.min, Vec3::new(at_end.max.x, top, at_end.max.z));
+    collides(world, player, path) && !collides(world, player, body(from))
+}
+
+/// Whether a block's collision box overlaps `bb`, as the player's client is shown the blocks (fake
+/// blocks included).
+fn collides(world: &World, player: &Player, bb: Aabb) -> bool {
+    // Boxes leave their cell only upward (fences, walls): the cells under the box count too.
+    let lo = BlockPos::containing(bb.min - Vec3::new(0.0, 1.0, 0.0));
+    let hi = BlockPos::containing(bb.max);
+    (lo.x..=hi.x).any(|x| {
+        (lo.z..=hi.z).any(|z| {
+            (lo.y..=hi.y).any(|y| {
+                let pos = BlockPos::new(x, y, z);
+                let block = player.view.shown(pos).or_else(|| world.block(pos));
+                block.is_some_and(|b| boxes_collide(b.collision_boxes(), pos, bb))
+            })
+        })
+    })
 }
 
 /// Whether any loaded block's collision box overlaps `bb`.
@@ -912,6 +957,7 @@ pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
     player.data_dirty = true;
     player.reset_fall_distance();
     player.survival.motion.processed = Some(feet(player));
+    player.view.await_ground(BlockPos::containing(feet(player)));
     send_position(player, MoveMode::Teleport);
 }
 
@@ -1338,5 +1384,71 @@ mod tests {
         let player = &state.players[&SessionId::new(1)];
         assert!(player.position.y > -40.0, "the move is taken");
         assert!(!player.survival.motion.on_ground);
+    }
+
+    /// The eye positions of the `MovePlayer` resets among `packets`.
+    fn resets(packets: Vec<Packet>) -> Vec<[f32; 3]> {
+        packets
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::MovePlayer(m) if m.mode == u8::from(MoveMode::Reset) => Some(m.position),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A client teleported where its terrain has not arrived (a respawn far away or in another
+    /// world) falls into the ground under it, or past a thin floor: the move is refused and the
+    /// client is sent back on top, so it does not stay a block low.
+    #[test]
+    fn a_client_without_its_ground_is_sent_back_from_a_fall_into_it() {
+        let (mut state, mut output, mut rx) = walker(crate::event::Listeners::default());
+        let session = SessionId::new(1);
+        for y in [-63, -62] {
+            state.worlds[0]
+                .set_block(BlockPos::new(0, y, 0), block::AIR)
+                .unwrap();
+        }
+        let standing = crate::tick::survival::eye_at(Vec3::new(0.5, -60.0, 0.5));
+        state.players.get_mut(&session).unwrap().position = standing;
+        received(&mut rx);
+        for (tick_number, sunk) in [(10, -60.08), (11, -60.31), (12, -63.0)] {
+            let player = state.players.get_mut(&session).unwrap();
+            player.survival.motion.force_sync = false;
+            // A chunk the client was not sent, as after a teleport into another world; the view
+            // phase drops it again, being out of the view.
+            player.view.await_ground(BlockPos::new(1000, -60, 0));
+            let eye = crate::tick::survival::eye_at(Vec3::new(0.5, sunk, 0.5)).to_f32();
+            tick(
+                &mut state,
+                &mut vec![moved_to(1, tick_number, eye)],
+                &mut output,
+            );
+            assert_eq!(state.players[&session].position, standing, "{sunk}");
+            assert_eq!(resets(received(&mut rx).0), [standing.to_f32()], "{sunk}");
+        }
+    }
+
+    /// A client that has its ground moves as it reports: into a block (one it broke in the same
+    /// input, as the server learns after the move) and out of one.
+    #[test]
+    fn a_client_with_its_ground_moves_as_it_reports() {
+        let (mut state, mut output, mut rx) = walker(crate::event::Listeners::default());
+        let session = SessionId::new(1);
+        received(&mut rx);
+        for (tick_number, feet) in [
+            (10, Vec3::new(0.5, -60.2, 0.5)),
+            (11, Vec3::new(0.5, -60.0, 0.5)),
+            (12, Vec3::new(1.5, -60.0, 0.5)),
+        ] {
+            let eye = crate::tick::survival::eye_at(feet).to_f32();
+            tick(
+                &mut state,
+                &mut vec![moved_to(1, tick_number, eye)],
+                &mut output,
+            );
+            assert_eq!(state.players[&session].position, Vec3::from_f32(eye));
+        }
+        assert!(resets(received(&mut rx).0).is_empty());
     }
 }
